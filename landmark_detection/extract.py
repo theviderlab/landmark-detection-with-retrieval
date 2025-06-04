@@ -102,9 +102,9 @@ class CVNet_SG(nn.Module):
         # Si no quedó ninguna caja válida, generar tensores vacíos
         if boxes_filt.numel() == 0:
             device = boxes_all.device
-            boxes_filt = torch.zeros((0, 4),  dtype=torch.float32, device=device),
-            scores_filt  = torch.zeros((0,),    dtype=torch.float32, device=device),
-            classes_filt = torch.zeros((0,),    dtype=torch.int64,   device=device),
+            boxes_filt = torch.zeros((0, 4),  dtype=torch.float32, device=device)
+            scores_filt  = torch.zeros((0,),    dtype=torch.float32, device=device)
+            classes_filt = torch.zeros((0,),    dtype=torch.int64,   device=device)
 
         # Añadir siempre la “detección” de la imagen completa al inicio
         _, _, H, W = image.shape
