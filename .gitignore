@@ -1,0 +1,11 @@
+# Ignorar toda la carpeta datasets y su contenido
+datasets/
+
+# Ignorar cualquier carpeta __pycache__ en cualquier nivel
+__pycache__/
+
+# Ignorar archivos con extensión
+*.pth
+*.pyth
+*.onnx
+*.pt
