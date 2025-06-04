@@ -34,6 +34,4 @@ class CVNet(nn.Module):
 
     def forward(self, image):
         # compute query features
-        q = self.encoder_q(image)[0]            # (B, REDUCTION_DIM)
-        q = nn.functional.normalize(q, dim=1)   # L2‐normaliza cada vector
-        return q                                # (B, REDUCTION_DIM)
+        return self.encoder_q(image)                               

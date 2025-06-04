@@ -1,154 +1,170 @@
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 
-class SuperGlobalExtractor:
+class SuperGlobalExtractor(nn.Module):
     """
-    Extractor global que aplica SuperGlobal Pooling: Regional-GeM (opcional), 
-    GeM/Average pooling y fusión entre augmentations (Scale-GeM), 
-    según el paper:
-    Shao, S., Chen, K., Karpur, A., Cui, Q., Araujo, A., Cao, B.:
-    "Global features are all you need for image retrieval and reranking". ICCV (2023)
+    Combina RGEM, GeM y SGEM para procesar mapas de activación de tamaño (N, C, H, W),
+    donde N = batch_size * aug. Devuelve descriptores de forma (batch_size, C).
     """
+    def __init__(
+        self,
+        rgem_pr: float   = 2.5,
+        rgem_size: int   = 5,
+        gem_p: float     = 4.6,
+        sgem_ps: float   = 10.0,
+        sgem_infinity: bool = False,
+        eps: float       = 1e-8
+    ):
+        super(SuperGlobalExtractor, self).__init__()
+        self.rgem = RGEM_Batch(pr=rgem_pr, size=rgem_size)
+        self.gem  = GEMp_Batch(p=gem_p, eps=eps)
+        self.sgem = SGEM_Batch(ps=sgem_ps, infinity=sgem_infinity, eps=eps)
 
-    def __init__(self, gem_p=3.0, rgem_pr=2.5, rgem_size=5, sgem_mode=0, sgem_p=10):
-
-        # Regional-GeM
-        self.rgem_pr = rgem_pr
-        self.rgem_size = rgem_size
-
-        # GeM
-        self.gem_p = gem_p
-
-        # Scale-GEM
-        self.sgem_mode = sgem_mode # 1: 'max' para SGEM∞, 0: 'lp' para SGEM^p
-        self.sgem_p = sgem_p
-
-        self.eps = 1e-6
-
-    def forward(self, x, aug=1):
+    def forward(self, feature_maps: torch.Tensor, aug: int) -> torch.Tensor:
         """
-        Extrae descriptores globales siguiendo la arquitectura de SuperGlobal.
-
         Args:
-            preprocessed_img (np.ndarray): Tensor (n, H, W, C), donde n = batch_size * aug
-            aug (int): Número de augmentations por imagen
+            feature_maps (torch.Tensor): Tensor con shape (N, C, H, W),
+                                         donde N = batch_size * aug.
+            aug (int): Número de escalas/augmentations por muestra.
 
         Returns:
-            np.ndarray: Tensor (batch_size, d_global), cada fila es un descriptor global
+            torch.Tensor: Descriptores globales de forma (batch_size, C).
         """
+        # 1) Regional-GeM (N, C, H, W) -> (N, C, H, W)
+        x = self.rgem(feature_maps)
+        # 2) GeM global (N, C, H, W) -> (N, C)
+        x = self.gem(x)
+        # 3) Normalización L2 fila a fila (N, C) -> (N, C)
+        x = F.normalize(x, p=2, dim=1)
+        # 4) SGEM batcheado (N, C) -> (batch_size, C)
+        x = self.sgem(x, aug)
+        return x
 
-        # 1. Regional-GeM
-        x = self.rgem(x, pr=self.rgem_pr, size=self.rgem_size, eps=self.eps)  # (n, h, w, c)
+# Ejemplo de uso:
+# extractor = SuperGlobalExtractor(
+#     rgem_pr=2.5, rgem_size=5, gem_p=4.6, sgem_ps=10.0, sgem_infinity=False, eps=1e-8
+# ).eval()
+# feature_maps = torch.rand((6, 2048, 7, 7))  # ej. 2 muestras x 3 escalas = 6
+# descriptors = extractor(feature_maps, aug=3)  # shape (2, 2048)
 
-        # 3. Pooling GeM
-        pooled = self.gem(self, x, p=self.gem_p, eps=self.eps)  # (n, d_global)
+class GEMp_Batch(nn.Module):
+    """Generalized mean pooling (GeM) adapted for 2D feature maps in batch."""
+    def __init__(self, p=4.6, eps=1e-8):
+        super(GEMp_Batch, self).__init__()
+        self.p = p
+        self.eps = eps
 
-        # 4. Normalización L2 por augmentación
-        pooled = tf.linalg.l2_normalize(pooled, axis=1).numpy()  # (n, d_global)
-
-        # 5. SGEM (fusión entre augmentations por imagen)
-        final_descriptors = self.sgem(
-            descriptors=pooled,
-            aug=aug,
-            mode=self.sgem_mode,
-            p=self.sgem_p
-        )  # (batch_size, d_global)
-
-        return final_descriptors
-
-    def gem(self, x, p=3.0, eps=1e-6):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Generalized Mean Pooling (GeM)
-
         Args:
-            x (tf.Tensor): (n, H, W, C)
-            p (float): Potencia para pooling
-            eps (float): Estabilidad numérica
-
+            x (torch.Tensor): Input feature maps of shape (N, C, H, W).
         Returns:
-            tf.Tensor: (n, C)
+            torch.Tensor: Pooled descriptors of shape (N, C).
         """
-        x = tf.clip_by_value(x, eps, tf.reduce_max(x))
-        x = tf.pow(x, p)
-        x = tf.reduce_mean(x, axis=[1, 2])
-        return tf.pow(x, 1.0 / p)
+        # Clamp to avoid numerical issues, raise to power p
+        x = x.clamp(min=self.eps).pow(self.p)  # (N, C, H, W)
+        # Apply adaptive average pooling to get (N, C, 1, 1)
+        x = torch.nn.functional.adaptive_avg_pool2d(x, output_size=(1, 1))  # (N, C, 1, 1)
+        # Take (1/p)-th power and squeeze
+        x = x.pow(1.0 / self.p).squeeze(-1).squeeze(-1)  # (N, C)
+        return x
 
-    def rgem(x: torch.Tensor, pr: float = 2.5, size: int = 5, eps: float = 1e-6) -> torch.Tensor:
+# Example usage:
+# gem = GEMp_Batch(p=4.6, eps=1e-8)
+# input_tensor = torch.rand((8, 2048, 7, 7))
+# output = gem(input_tensor)  # shape (8, 2048)
+
+class RGEM_Batch(nn.Module):
+    """Regional-GeM idéntico al original (TF/NumPy) para batch de (N, C, H, W)."""
+    def __init__(self, pr=2.5, size=5, eps=1e-6):
+        super(RGEM_Batch, self).__init__()
+        self.pr   = pr
+        self.size = size
+        self.eps  = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Regional Generalized Mean Pooling (Regional‐GeM) en PyTorch.
-
         Args:
-            x (torch.Tensor): Tensor 4D con forma (N, C, H, W)
-            pr (float): Potencia para el Lₚ‐pooling (p = pr)
-            size (int): Tamaño del kernel cuadrado para el pooling (debe ser impar)
-            eps (float): Evita inestabilidad numérica en valores muy pequeños
-
+            x (torch.Tensor): (N, C, H, W)
         Returns:
-            torch.Tensor: Tensor 4D con forma (N, C, H, W) tras aplicar Regional‐GeM
+            torch.Tensor: (N, C, H, W) tras Regional-GeM
         """
-        # 1) Escalar x por el factor (size²)^(1/pr)
-        denom = float(size * size) ** (1.0 / pr)
+        # 1) denom = (size^2)^(1/pr)
+        denom = float(self.size ** 2) ** (1.0 / self.pr)
+
+        # 2) x_norm = x / denom
         x_norm = x / denom  # (N, C, H, W)
 
-        # 2) Padding reflectivo en H y W
-        pad = (size - 1) // 2
-        # F.pad en PyTorch para 4D: pad = (pad_left, pad_right, pad_top, pad_bottom)
-        x_padded = F.pad(x_norm, (pad, pad, pad, pad), mode="reflect")  # (N, C, H+2pad, W+2pad)
+        # 3) Padding reflect
+        pad = (self.size - 1) // 2
+        x_padded = torch.nn.functional.pad(x_norm, (pad, pad, pad, pad), mode="reflect")
+        # Ahora x_padded es (N, C, H+2pad, W+2pad)
 
-        # 3) Elevar a la potencia pr, pero evitando valores < eps
-        #    (se utiliza el máximo global para definir el tope del clamp)
-        max_val = x_padded.max()
-        x_clamped = torch.clamp(x_padded, min=eps, max=max_val)
-        x_pow = x_clamped.pow(pr)  # (N, C, H+2pad, W+2pad)
+        # 4) x_pow_padded = clamp(x_padded, eps)^pr
+        x_pow_padded = torch.clamp(x_padded, min=self.eps).pow(self.pr)  # (N, C, H+2pad, W+2pad)
 
-        # 4) Promedio local con stride=1 y padding=“VALID” (ya hemos aplicado padding manual)
-        pooled = F.avg_pool2d(x_pow, kernel_size=size, stride=1, padding=0)  # (N, C, H, W)
+        # 5) avg_pool2d con kernel=size, stride=1
+        pooled = torch.nn.functional.avg_pool2d(x_pow_padded, kernel_size=self.size, stride=1, padding=0)
+        # pooled: (N, C, H, W)
 
-        # 5) Elevar resultado a la 1/pr
-        pooled = pooled.pow(1.0 / pr)  # (N, C, H, W)
+        # 6) pooled = clamp(pooled, eps)^(1/pr)
+        pooled = torch.clamp(pooled, min=self.eps).pow(1.0 / self.pr)  # (N, C, H, W)
 
-        # 6) Combinar 50% pooled + 50% entrada original
-        out = 0.5 * pooled + 0.5 * x  # (N, C, H, W)
-        return out
+        # 7) resultado final = 0.5 * pooled + 0.5 * x
+        return 0.5 * pooled + 0.5 * x
 
-    def sgem(self, descriptors, aug=1, mode="max", p=10.0, eps=1e-8):
+# Example usage:
+# rgem = RGEM_Batch(pr=2.5, size=5)
+# input_tensor = torch.rand((8, 2048, 7, 7))
+# output = rgem(input_tensor)  # shape (8, 2048, 7, 7)
+
+class SGEM_Batch(nn.Module):
+    """
+    Scale Generalized Mean Pooling (SGEM) batched for (N, d) descriptors.
+    N = batch_size * aug
+    """
+    def __init__(self, ps=10.0, infinity=True, eps=1e-8):
+        super(SGEM_Batch, self).__init__()
+        self.ps = ps
+        self.infinity = infinity
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor, aug: int) -> torch.Tensor:
         """
-        Scale Generalized Mean Pooling (Scale-GeM) para fusionar descriptores globales de distintas escalas.
-
-        Esta operación corresponde al método Scale-GeM (SGEM) propuesto en el paper:
-        Shao, S., Chen, K., Karpur, A., Cui, Q., Araujo, A., Cao, B.:
-        "Global features are all you need for image retrieval and reranking".
-        In: ICCV (2023)
-
         Args:
-            descriptors (np.ndarray): Tensor con forma (n, d_global), donde n = batch_size * aug
-            aug (int): Cantidad de augmentations por imagen (escalas)
-            mode (str): 'max' para SGEM∞ o 'lp' para SGEM^p
-            p (float): Potencia para SGEM^p
-            eps (float): Estabilidad numérica
+            x (torch.Tensor): Input descriptors, shape (N, d) where N = batch_size * aug
+            aug (int): Number of augmentations (scales) per sample
 
         Returns:
-            np.ndarray: Tensor con forma (batch_size, d_global) con descriptores fusionados
+            torch.Tensor: Fused descriptors, shape (batch_size, d)
         """
-        assert descriptors.ndim == 2, "descriptors debe tener forma (n, d_global)"
-        n, d = descriptors.shape
-        assert n % aug == 0, "n debe ser divisible por aug"
-        batch_size = n // aug
+        # x=x.double()
+        N, d = x.shape
+        if N % aug != 0:
+            raise ValueError(f"N={N} no es divisible por aug={aug}")
+        B = N // aug  # batch_size
 
-        # Reorganizar: (batch_size, aug, d_global)
-        reshaped = descriptors.reshape(batch_size, aug, d)
+        # Reshape to (B, aug, d)
+        reshaped = x.view(B, aug, d)  # (B, aug, d)
 
-        if mode == "max":
-            # L2-normalizar cada vector antes de hacer max
-            norms = np.linalg.norm(reshaped, axis=2, keepdims=True) + eps
-            normalized = reshaped / norms
-            return np.max(normalized, axis=1)  # (batch_size, d_global)
-
-        elif mode == "lp":
-            gamma = np.min(reshaped)
-            centered = reshaped - gamma
-            pooled = np.mean(np.power(centered, p), axis=1)
-            return np.power(pooled, 1.0 / p) + gamma
-
+        if self.infinity:
+            # SGEM∞: normalize each vector (d) and take max over aug
+            norms = torch.norm(reshaped, p=2, dim=2, keepdim=True) + self.eps  # (B, aug, 1)
+            normalized = reshaped / norms  # (B, aug, d)
+            output = normalized.max(dim=1)[0]  # (B, d)
         else:
-            raise ValueError(f"Modo SGEM '{mode}' no soportado. Usa 'max' o 'lp'.")
+            # SGEM^p: gamma = minimum per sample over all entries (aug x d)
+            gamma = reshaped.view(B, -1).min(dim=1, keepdim=True)[0]  # (B, 1)
+            gamma = gamma.view(B, 1, 1)  # (B, 1, 1)
+            centered = reshaped - gamma  # (B, aug, d)
+            x_pow = centered.pow(self.ps) #centered.clamp(min=self.eps).pow(self.ps)  # (B, aug, d)
+            pooled = x_pow.mean(dim=1)  # (B, d)
+            output = pooled.pow(1.0 / self.ps) + gamma.view(B, 1)  # (B, d)
+
+        return output
+
+# Example usage:
+# sgem = SGEM_Batch(ps=10.0, infinity=False)
+# descriptors = torch.rand((6, 2048))  # e.g. 2 samples x 3 scales = 6
+# fused = sgem(descriptors, aug=3)  # returns shape (2, 2048)
