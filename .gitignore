@@ -1,8 +1,8 @@
-# Ignorar toda la carpeta datasets y su contenido
+# Ignorar toda las carpetas
 datasets/
-
-# Ignorar cualquier carpeta __pycache__ en cualquier nivel
 __pycache__/
+.ipynb_checkpoints/
+landmark_detection/__pycache__/
 
 # Ignorar archivos con extensión
 *.pth
