@@ -109,7 +109,7 @@ class Pipeline_Yolo_CVNet_SG():
     def detect(self, image_path: str):
 
         # Cargar imagen
-        img = self._load_image(image_path)
+        img, _ = self._load_image(image_path)
 
         # Obtener detecciones
         input_name = self.detector.get_inputs()[0].name
@@ -122,16 +122,23 @@ class Pipeline_Yolo_CVNet_SG():
     
     def run(self, image_path: str):
         # Cargar imagen
-        img = self._load_image(image_path)
+        img, (orig_w, orig_h) = self._load_image(image_path)
 
         # Ejecutar inferencia sobre el pipeline
         input_name = self.pipeline.get_inputs()[0].name
-        return self.pipeline.run(None, {input_name: img})
+        results = self.pipeline.run(None, {input_name: img})
+
+        # Convertir bounding boxes al tamaño original
+        results = list(results)
+        if len(results) > 0:
+            results[0] = self._resize_boxes(results[0], (orig_w, orig_h))
+        return results
 
     def _load_image(self, image_path: str):
         img_bgr = cv2.imread(image_path)
         if img_bgr is None:
             raise FileNotFoundError(f"No se encontró la imagen en {image_path}")
+        orig_h, orig_w = img_bgr.shape[:2]
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
         # Redimensionar a self.image_dim
@@ -141,7 +148,17 @@ class Pipeline_Yolo_CVNet_SG():
         img_tensor = torch.from_numpy(img_resized).permute(2,0,1).float() / 255.0
         img_tensor = img_tensor.unsqueeze(0)  # shape (1,3,self.image_dim[0],self.image_dim[1])
 
-        return img_tensor.numpy()
+        return img_tensor.numpy(), (orig_w, orig_h)
+
+    def _resize_boxes(self, boxes, original_size):
+        """Ajusta las bounding boxes al tamaño original de la imagen."""
+        orig_w, orig_h = original_size
+        scale_x = orig_w / self.image_dim[0]
+        scale_y = orig_h / self.image_dim[1]
+        boxes = boxes.copy()
+        boxes[:, [0, 2]] = boxes[:, [0, 2]] * scale_x
+        boxes[:, [1, 3]] = boxes[:, [1, 3]] * scale_y
+        return boxes
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
