@@ -119,7 +119,7 @@ class CVNet_SG(nn.Module):
             device=scores_filt.device
         )  # (1,)
         full_class = torch.tensor(
-            [0],
+            [-1],
             dtype=classes_filt.dtype,
             device=classes_filt.device
         )  # (1,)
@@ -143,6 +143,8 @@ class CVNet_SG(nn.Module):
         with torch.no_grad():
             feature_maps = self.cvnet(crops_norm) 
             descriptors = self.sg(feature_maps, len(self.scales))
+
+        descriptors = F.normalize(descriptors, p=2, dim=1)
 
         return final_boxes, final_scores, final_classes, descriptors
 
@@ -171,11 +173,11 @@ class CVNet_SG(nn.Module):
         boxes = torch.stack([x1, y1, x2, y2], dim=1)  # (N,4)
 
         # Extraer logits de clase: (N, C)
-        cls_logits = x[:, 5:]                         # (N, C)
+        cls_logits = x[:, 4:]                         # (N, C)
 
-        # Obtener la confianza y el índice de clase (0-based)
+        # Obtener la confianza y el índice de clase
         cls_conf, cls_ids = cls_logits.max(dim=1)     # ambos (N,)
-        cls_ids = cls_ids + 1                         # pasamos a 1-based, si quieres
+        cls_ids = cls_ids                         
 
         return boxes, cls_conf, cls_ids
 
