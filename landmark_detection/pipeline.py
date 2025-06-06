@@ -4,6 +4,7 @@ from ultralytics import YOLO
 import os
 import cv2
 from typing import List
+import json
 
 import onnxruntime as ort
 import onnx
@@ -105,6 +106,23 @@ class Pipeline_Yolo_CVNet_SG():
         # Instanciar pipeline
         print('Instanciando el pipeline completo')
         self.pipeline = ort.InferenceSession(pipeline_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Almacenar parámetros de configuración
+        self.detector_file = detector_onnx_path
+        self.extractor_onnx_file = extractor_onnx_path
+        self.pipeline_onnx_file = pipeline_onnx_path
+        self.allowed_classes = allowed_classes
+        self.score_thresh = score_thresh
+        self.iou_thresh = iou_thresh
+        self.scales = scales
+        self.mean = mean
+        self.std = std
+        self.rgem_pr = rgem_pr
+        self.rgem_size = rgem_size
+        self.gem_p = gem_p
+        self.sgem_ps = sgem_ps
+        self.sgem_infinity = sgem_infinity
+        self.eps = eps
 
     def detect(self, image_path: str):
 
@@ -249,3 +267,46 @@ class Pipeline_Yolo_CVNet_SG():
 
         onnx.checker.check_model(merged_model)  # valida topológica y esquemas
         onnx.save(merged_model, pipeline_onnx_path)
+
+    def to_json(self, json_path: str):
+        """Guarda la configuración del pipeline en un archivo JSON."""
+        config = {
+            "detector_file": self.detector_file,
+            "extractor_onnx_file": self.extractor_onnx_file,
+            "pipeline_onnx_file": self.pipeline_onnx_file,
+            "image_dim": list(self.image_dim),
+            "allowed_classes": self.allowed_classes,
+            "score_thresh": self.score_thresh,
+            "iou_thresh": self.iou_thresh,
+            "scales": self.scales,
+            "mean": self.mean,
+            "std": self.std,
+            "rgem_pr": self.rgem_pr,
+            "rgem_size": self.rgem_size,
+            "gem_p": self.gem_p,
+            "sgem_ps": self.sgem_ps,
+            "sgem_infinity": self.sgem_infinity,
+            "eps": self.eps,
+        }
+
+        dir_name = os.path.dirname(json_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            if isinstance(data, list):
+                data.append(config)
+            elif isinstance(data, dict):
+                data.update(config)
+            else:
+                data = config
+        else:
+            data = config
+
+        with open(json_path, "w") as f:
+            json.dump(data, f, indent=2)
