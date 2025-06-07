@@ -132,28 +132,34 @@ class Pipeline_Yolo_CVNet_SG():
     def detect(self, image):
 
         # Preprocesar imagen
-        img, _ = self.preprocess(image)
+        img, orig_size = self.preprocess(image)
 
         # Obtener detecciones
-        input_name = self.detector.get_inputs()[0].name
-        detections = self.detector.run(None, {input_name: img})
+        detector_inputs = {self.detector.get_inputs()[0].name: img}
+        if len(self.detector.get_inputs()) > 1:
+            detector_inputs[self.detector.get_inputs()[1].name] = orig_size
+        detections = self.detector.run(None, detector_inputs)
 
-        return detections, img
+        return detections, img, orig_size
     
-    def extract(self, img, detections):
-        return self.extractor.run(None, {"detections": detections, "image": img})
+    def extract(self, img, detections, orig_size=None):
+        extractor_inputs = {"detections": detections, "image": img}
+        if orig_size is not None and len(self.extractor.get_inputs()) > 2:
+            extractor_inputs[self.extractor.get_inputs()[2].name] = orig_size
+        return self.extractor.run(None, extractor_inputs)
     
     def run(self, image):
         # Preprocesar la imagen
         img, orig_size = self.preprocess(image)
 
         # Ejecutar inferencia sobre el pipeline
-        input_name = self.pipeline.get_inputs()[0].name
-        results = self.pipeline.run(None, {input_name: img})
+        pipeline_inputs = {self.pipeline.get_inputs()[0].name: img}
+        if len(self.pipeline.get_inputs()) > 1:
+            pipeline_inputs[self.pipeline.get_inputs()[1].name] = orig_size
+        results = self.pipeline.run(None, pipeline_inputs)
 
         # Postprocesar resultados
         return self.postprocess(results, orig_size)
-
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
@@ -178,13 +184,21 @@ class Pipeline_Yolo_CVNet_SG():
         # Crear un nodo Identity que copie ese input a un nuevo tensor "images_out"
         identity_node = helper.make_node(
             "Identity",
-            inputs=[input_name],      # la entrada original de YOLO (input_name)
-            outputs=["images_out"],   # nuevo nombre de tensor que contendrá la misma imagen
-            name="Identity_ExposeImages"
+            inputs=[input_name],
+            outputs=["images_out"],
+            name="Identity_ExposeImages",
         )
 
-        # Añadir ese nodo al final de graph.node
-        graph.node.append(identity_node)
+        # Nodo para propagar orig_size sin modificar
+        orig_node = helper.make_node(
+            "Identity",
+            inputs=["orig_size"],
+            outputs=["orig_size_det_out"],
+            name="Identity_ExposeOrigSizeDet",
+        )
+
+        # Añadir los nodos al grafo
+        graph.node.extend([identity_node, orig_node])
 
         # Declarar “images_out” como nuevo output del grafo, con la misma shape/dtipo que input_name
         # Podemos extraer la shape/dtipo del input para no recortarla a mano:
@@ -204,13 +218,28 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(new_output)
 
+        # Declarar el nuevo input y output para orig_size
+        orig_input = helper.make_tensor_value_info(
+            name="orig_size",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.input.append(orig_input)
+
+        orig_output = helper.make_tensor_value_info(
+            name="orig_size_det_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.output.append(orig_output)
+
         # Guardar el ONNX modificado en disco
         onnx.save(model, detector_onnx_path)
 
         return detector_onnx_path
 
     def _export_extractor(self, extractor, extractor_onnx_path: str, test_image_path: str):
-        detections, img  = self.detect(test_image_path)
+        detections, img, _ = self.detect(test_image_path)
 
         img_tensor = torch.from_numpy(img)
         if isinstance(detections, (list, tuple)):
@@ -226,13 +255,41 @@ class Pipeline_Yolo_CVNet_SG():
             input_names=["detections", "image"],           # nombre del input
             output_names=["boxes", "scores", "classes", "descriptors"],
             dynamic_axes={
-                "boxes":        {0: "num_boxes"},   
+                "boxes":        {0: "num_boxes"},
                 "scores":       {0: "num_boxes"},
                 "classes":      {0: "num_boxes"},
                 "descriptors":  {0: "num_boxes"}
             },
             do_constant_folding=True
         )
+
+        # Añadir bypass para orig_size
+        model = onnx.load(extractor_onnx_path)
+        graph = model.graph
+
+        orig_input = helper.make_tensor_value_info(
+            name="orig_size",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.input.append(orig_input)
+
+        orig_node = helper.make_node(
+            "Identity",
+            inputs=["orig_size"],
+            outputs=["orig_size_out"],
+            name="Identity_ExposeOrigSizeExt",
+        )
+        graph.node.append(orig_node)
+
+        orig_output = helper.make_tensor_value_info(
+            name="orig_size_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.output.append(orig_output)
+
+        onnx.save(model, extractor_onnx_path)
 
     def _export_pipeline(self, detector_onnx_path: str, extractor_onnx_path: str, pipeline_onnx_path: str):
         detector_onnx = onnx.load(detector_onnx_path)
@@ -241,7 +298,11 @@ class Pipeline_Yolo_CVNet_SG():
         merged_model = compose.merge_models(
             detector_onnx,
             extractor_onnx,
-            io_map=[("images_out", "image"),("output0", "detections")]
+            io_map=[
+                ("images_out", "image"),
+                ("output0", "detections"),
+                ("orig_size_det_out", "orig_size"),
+            ]
         )
 
         onnx.checker.check_model(merged_model)  # valida topológica y esquemas
@@ -301,13 +362,26 @@ class Pipeline_Yolo_CVNet_SG():
             img_tensor = torch.as_tensor(image)
 
         processed, orig_size = self.preprocess_module(img_tensor)
-        return processed.numpy(), (int(orig_size[0]), int(orig_size[1]))
+        orig_size = orig_size.to(dtype=torch.float32).numpy()
+        return processed.numpy(), orig_size
 
     def postprocess(self, results, original_size):
         """Escala las cajas al tamaño original de la imagen."""
         results = list(results)
         if len(results) > 0:
             boxes = torch.as_tensor(results[0])
-            orig = torch.tensor([original_size[0], original_size[1]], dtype=torch.float32)
-            results[0] = self.postprocess_module(boxes, orig).numpy()
+            scores = torch.as_tensor(results[1])
+            classes = torch.as_tensor(results[2])
+            descriptors = torch.as_tensor(results[3])
+            orig = torch.tensor([
+                original_size[0],
+                original_size[1],
+            ], dtype=torch.float32)
+            (
+                results[0],
+                results[1],
+                results[2],
+                results[3],
+            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
+            results = [r for r in results]
         return results
