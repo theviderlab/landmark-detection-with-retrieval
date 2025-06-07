@@ -254,6 +254,8 @@ class Pipeline_Yolo_CVNet_SG():
         detections, img  = self.detect(test_image_path)
 
         img_tensor = torch.from_numpy(img)
+        if isinstance(detections, (list, tuple)):
+            detections = detections[0]
         detections_tensor = torch.from_numpy(detections)
 
         # Exportar a ONNX
