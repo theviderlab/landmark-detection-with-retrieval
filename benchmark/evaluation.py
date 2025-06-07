@@ -74,7 +74,7 @@ def run_evaluation(
     # definido por el dataset para asegurar correspondencia con ``gnd``.
     mask_query = df_result['image_name'].isin(query_image_names)
     query_index = (
-        df_result[mask_query & mask_selection]
+        df_result[mask_query & mask_img_full]
         .sort_values("q_img_id")
         .index
     )
