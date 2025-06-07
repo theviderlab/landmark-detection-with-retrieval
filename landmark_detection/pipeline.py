@@ -383,5 +383,5 @@ class Pipeline_Yolo_CVNet_SG():
                 results[2],
                 results[3],
             ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
-            results = [r.numpy() for r in results]
+            results = [r for r in results]
         return results
