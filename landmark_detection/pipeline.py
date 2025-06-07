@@ -21,8 +21,8 @@ class PreprocessModule(nn.Module):
         self.image_dim = image_dim
 
     def forward(self, img_bgr: torch.Tensor):
-        h = img_bgr.shape[0].to(torch.float32)
-        w = img_bgr.shape[1].to(torch.float32)
+        h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
+        w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
         orig_size = torch.stack([w, h])
         img_rgb = img_bgr.permute(2, 0, 1).float()
         img_rgb = img_rgb[[2, 1, 0], ...]  # BGR -> RGB
