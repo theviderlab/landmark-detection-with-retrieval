@@ -362,7 +362,8 @@ class Pipeline_Yolo_CVNet_SG():
             img_tensor = torch.as_tensor(image)
 
         processed, orig_size = self.preprocess_module(img_tensor)
-        return processed.numpy(), (int(orig_size[0]), int(orig_size[1]))
+        orig_size = orig_size.to(dtype=torch.float32).numpy()
+        return processed.numpy(), orig_size
 
     def postprocess(self, results, original_size):
         """Escala las cajas al tamaño original de la imagen."""
