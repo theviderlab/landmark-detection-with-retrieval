@@ -308,6 +308,18 @@ class Pipeline_Yolo_CVNet_SG():
         results = list(results)
         if len(results) > 0:
             boxes = torch.as_tensor(results[0])
-            orig = torch.tensor([original_size[0], original_size[1]], dtype=torch.float32)
-            results[0] = self.postprocess_module(boxes, orig).numpy()
+            scores = torch.as_tensor(results[1])
+            classes = torch.as_tensor(results[2])
+            descriptors = torch.as_tensor(results[3])
+            orig = torch.tensor([
+                original_size[0],
+                original_size[1],
+            ], dtype=torch.float32)
+            (
+                results[0],
+                results[1],
+                results[2],
+                results[3],
+            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
+            results = [r.numpy() for r in results]
         return results
