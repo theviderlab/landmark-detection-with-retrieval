@@ -193,8 +193,8 @@ class Pipeline_Yolo_CVNet_SG():
         orig_node = helper.make_node(
             "Identity",
             inputs=["orig_size"],
-            outputs=["orig_size_out"],
-            name="Identity_ExposeOrigSize",
+            outputs=["orig_size_det_out"],
+            name="Identity_ExposeOrigSizeDet",
         )
 
         # Añadir los nodos al grafo
@@ -227,7 +227,7 @@ class Pipeline_Yolo_CVNet_SG():
         graph.input.append(orig_input)
 
         orig_output = helper.make_tensor_value_info(
-            name="orig_size_out",
+            name="orig_size_det_out",
             elem_type=onnx.TensorProto.FLOAT,
             shape=[2],
         )
@@ -278,7 +278,7 @@ class Pipeline_Yolo_CVNet_SG():
             "Identity",
             inputs=["orig_size"],
             outputs=["orig_size_out"],
-            name="Identity_ExposeOrigSize",
+            name="Identity_ExposeOrigSizeExt",
         )
         graph.node.append(orig_node)
 
@@ -301,7 +301,7 @@ class Pipeline_Yolo_CVNet_SG():
             io_map=[
                 ("images_out", "image"),
                 ("output0", "detections"),
-                ("orig_size_out", "orig_size"),
+                ("orig_size_det_out", "orig_size"),
             ]
         )
 
