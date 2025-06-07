@@ -1,5 +1,8 @@
 import torch
 from landmark_detection.extract import CVNet_SG
+from landmark_detection.preprocess import PreprocessModule
+from landmark_detection.postprocess import PostprocessModule
+
 from ultralytics import YOLO
 import os
 import cv2
@@ -33,8 +36,10 @@ class Pipeline_Yolo_CVNet_SG():
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
         eps: float       = 1e-8
-    ):        
+    ):
         self.image_dim = image_dim
+        self.preprocess_module = PreprocessModule(image_dim)
+        self.postprocess_module = PostprocessModule(image_dim)
         # Obtener el directorio donde está este archivo Python (el módulo)
         module_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -124,59 +129,31 @@ class Pipeline_Yolo_CVNet_SG():
         self.sgem_infinity = sgem_infinity
         self.eps = eps
 
-    def detect(self, image_path: str):
+    def detect(self, image):
 
-        # Cargar imagen
-        img, _ = self._load_image(image_path)
+        # Preprocesar imagen
+        img, _ = self.preprocess(image)
 
         # Obtener detecciones
         input_name = self.detector.get_inputs()[0].name
         detections = self.detector.run(None, {input_name: img})
 
-        return detections
+        return detections, img
     
     def extract(self, img, detections):
         return self.extractor.run(None, {"detections": detections, "image": img})
     
-    def run(self, image_path: str):
-        # Cargar imagen
-        img, (orig_w, orig_h) = self._load_image(image_path)
+    def run(self, image):
+        # Preprocesar la imagen
+        img, orig_size = self.preprocess(image)
 
         # Ejecutar inferencia sobre el pipeline
         input_name = self.pipeline.get_inputs()[0].name
         results = self.pipeline.run(None, {input_name: img})
 
-        # Convertir bounding boxes al tamaño original
-        results = list(results)
-        if len(results) > 0:
-            results[0] = self._resize_boxes(results[0], (orig_w, orig_h))
-        return results
+        # Postprocesar resultados
+        return self.postprocess(results, orig_size)
 
-    def _load_image(self, image_path: str):
-        img_bgr = cv2.imread(image_path)
-        if img_bgr is None:
-            raise FileNotFoundError(f"No se encontró la imagen en {image_path}")
-        orig_h, orig_w = img_bgr.shape[:2]
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-        # Redimensionar a self.image_dim
-        img_resized = cv2.resize(img_rgb, self.image_dim)
-
-        # Convertir a tensor CHW y normalizar a [0,1] float32
-        img_tensor = torch.from_numpy(img_resized).permute(2,0,1).float() / 255.0
-        img_tensor = img_tensor.unsqueeze(0)  # shape (1,3,self.image_dim[0],self.image_dim[1])
-
-        return img_tensor.numpy(), (orig_w, orig_h)
-
-    def _resize_boxes(self, boxes, original_size):
-        """Ajusta las bounding boxes al tamaño original de la imagen."""
-        orig_w, orig_h = original_size
-        scale_x = orig_w / self.image_dim[0]
-        scale_y = orig_h / self.image_dim[1]
-        boxes = boxes.copy()
-        boxes[:, [0, 2]] = boxes[:, [0, 2]] * scale_x
-        boxes[:, [1, 3]] = boxes[:, [1, 3]] * scale_y
-        return boxes
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
@@ -236,6 +213,8 @@ class Pipeline_Yolo_CVNet_SG():
         detections, img  = self.detect(test_image_path)
 
         img_tensor = torch.from_numpy(img)
+        if isinstance(detections, (list, tuple)):
+            detections = detections[0]
         detections_tensor = torch.from_numpy(detections)
 
         # Exportar a ONNX
@@ -310,3 +289,25 @@ class Pipeline_Yolo_CVNet_SG():
 
         with open(json_path, "w") as f:
             json.dump(data, f, indent=2)
+
+    def preprocess(self, image):
+        """Carga y normaliza la imagen."""
+        if isinstance(image, str):
+            img_bgr = cv2.imread(image)
+            if img_bgr is None:
+                raise FileNotFoundError(f"No se encontró la imagen en {image}")
+            img_tensor = torch.from_numpy(img_bgr)
+        else:
+            img_tensor = torch.as_tensor(image)
+
+        processed, orig_size = self.preprocess_module(img_tensor)
+        return processed.numpy(), (int(orig_size[0]), int(orig_size[1]))
+
+    def postprocess(self, results, original_size):
+        """Escala las cajas al tamaño original de la imagen."""
+        results = list(results)
+        if len(results) > 0:
+            boxes = torch.as_tensor(results[0])
+            orig = torch.tensor([original_size[0], original_size[1]], dtype=torch.float32)
+            results[0] = self.postprocess_module(boxes, orig).numpy()
+        return results
