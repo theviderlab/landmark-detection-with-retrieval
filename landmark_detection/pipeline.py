@@ -1,59 +1,18 @@
 import torch
 from landmark_detection.extract import CVNet_SG
+from landmark_detection.preprocess import PreprocessModule
+from landmark_detection.postprocess import PostprocessModule
+
 from ultralytics import YOLO
 import os
 import cv2
 from typing import List
 import json
-import torch.nn as nn
-import torch.nn.functional as F
 
 import onnxruntime as ort
 import onnx
 from onnx import compose
 from onnx import helper
-
-class PreprocessModule(nn.Module):
-    """Prepara la imagen para el detector."""
-
-    def __init__(self, image_dim: tuple[int]):
-        super().__init__()
-        self.image_dim = image_dim
-
-    def forward(self, img_bgr: torch.Tensor):
-        h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
-        w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
-        orig_size = torch.stack([w, h])
-        img_rgb = img_bgr.permute(2, 0, 1).float()
-        img_rgb = img_rgb[[2, 1, 0], ...]  # BGR -> RGB
-        img_rgb = img_rgb.unsqueeze(0)
-        img_resized = F.interpolate(
-            img_rgb,
-            size=self.image_dim,
-            mode="bilinear",
-            align_corners=False,
-        )
-        img_norm = img_resized / 255.0
-        return img_norm, orig_size
-
-
-class PostprocessModule(nn.Module):
-    """Redimensiona bounding boxes al tamaño original."""
-
-    def __init__(self, image_dim: tuple[int]):
-        super().__init__()
-        self.image_dim = torch.tensor(image_dim, dtype=torch.float32)
-
-    def forward(self, boxes: torch.Tensor, orig_size: torch.Tensor):
-        scale = torch.stack(
-            [
-                orig_size[0] / self.image_dim[0],
-                orig_size[1] / self.image_dim[1],
-                orig_size[0] / self.image_dim[0],
-                orig_size[1] / self.image_dim[1],
-            ]
-        )
-        return boxes * scale
 
 class Pipeline_Yolo_CVNet_SG():
 
