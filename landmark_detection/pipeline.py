@@ -154,7 +154,6 @@ class Pipeline_Yolo_CVNet_SG():
         # Postprocesar resultados
         return self.postprocess(results, orig_size)
 
-
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
         paths = detector.export(
