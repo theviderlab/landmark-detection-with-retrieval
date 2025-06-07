@@ -7,6 +7,7 @@ def run_evaluation(
     df_result,
     descriptors_final,
     dataset: str = "rparis6k",   # Set test dataset: roxford5k | rparis6k
+    use_bbox: bool = False,
 ):
     """Evaluates retrieval performance over the Revisited Oxford/Paris datasets.
 
@@ -19,6 +20,10 @@ def run_evaluation(
         Descriptores de todas las imágenes en el mismo orden que ``df_result``.
     dataset : str, optional
         Nombre del *dataset* a evaluar (``roxford5k`` o ``rparis6k``).
+    use_bbox : bool, optional
+        Si es ``True`` no se filtran las filas con ``class_id`` distinto de -1,
+        permitiendo que las similitudes se calculen utilizando también las
+        detecciones en forma de ``bounding boxes``.
 
     Returns
     -------
@@ -63,12 +68,13 @@ def run_evaluation(
     print('>> {}: Loading features...'.format(dataset))
 
     mask_img_full = df_result['class_id'] == -1
+    mask_selection = np.ones(len(df_result), dtype=bool) if use_bbox else mask_img_full
 
     # Extraemos descriptores de las imágenes de consulta en el orden
     # definido por el dataset para asegurar correspondencia con ``gnd``.
     mask_query = df_result['image_name'].isin(query_image_names)
     query_index = (
-        df_result[mask_query & mask_img_full]
+        df_result[mask_query & mask_selection]
         .sort_values("q_img_id")
         .index
     )
@@ -79,7 +85,7 @@ def run_evaluation(
     # identificadores del dataset.
     mask_db = df_result['image_name'].isin(db_image_names)
     db_index = (
-        df_result[mask_db & mask_img_full]
+        df_result[mask_db & mask_selection]
         .sort_values("db_img_id")
         .index
     )
