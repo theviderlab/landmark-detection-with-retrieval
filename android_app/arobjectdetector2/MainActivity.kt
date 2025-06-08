@@ -142,8 +142,11 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val onnxName = "pipeline-yolo-cvnet-sg-v1.onnx"
-                val tmpFile = File(cacheDir, onnxName).apply {
-                    writeBytes(assets.open(onnxName).readBytes())
+                val tmpFile = File(cacheDir, onnxName)
+                assets.open(onnxName).use { input ->
+                    tmpFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
                 }
                 dnnNet = Dnn.readNetFromONNX(tmpFile.absolutePath)
                 Log.d(TAG, "DNN ONNX cargado correctamente")
