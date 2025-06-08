@@ -377,38 +377,48 @@ class Pipeline_Yolo_CVNet_SG():
         extractor_onnx = onnx.load(extractor_onnx_path)
         postprocess_onnx = onnx.load(postprocess_onnx_path)
 
+        # Prefix graphs to avoid name collisions when merging
+        detector_onnx = compose.add_prefix(detector_onnx, "det_")
+        extractor_onnx = compose.add_prefix(extractor_onnx, "ext_")
+        postprocess_onnx = compose.add_prefix(postprocess_onnx, "post_")
+
         # Preprocess -> Detector
         det_input_name = detector_onnx.graph.input[0].name
+        det_orig_name = detector_onnx.graph.input[1].name
         merged_pd = compose.merge_models(
             preprocess_onnx,
             detector_onnx,
             io_map=[
                 ("image", det_input_name),
-                ("orig_size", "orig_size"),
+                ("orig_size", det_orig_name),
             ],
         )
 
         # Detector -> Extractor
+        ext_inputs = [i.name for i in extractor_onnx.graph.input]
+        det_outputs = [o.name for o in detector_onnx.graph.output]
         merged_pde = compose.merge_models(
             merged_pd,
             extractor_onnx,
             io_map=[
-                ("images_out", "image"),
-                ("output0", "detections"),
-                ("orig_size_det_out", "orig_size"),
+                (det_outputs[1], ext_inputs[1]),  # images_out -> image
+                (det_outputs[0], ext_inputs[0]),  # output0 -> detections
+                (det_outputs[2], ext_inputs[2]),  # orig_size_det_out -> orig_size
             ],
         )
 
         # Extractor -> Postprocess
+        ext_outputs = [o.name for o in extractor_onnx.graph.output]
+        post_inputs = [i.name for i in postprocess_onnx.graph.input]
         merged_model = compose.merge_models(
             merged_pde,
             postprocess_onnx,
             io_map=[
-                ("boxes", "final_boxes"),
-                ("scores", "final_scores"),
-                ("classes", "final_classes"),
-                ("descriptors", "descriptors"),
-                ("orig_size_out", "orig_size"),
+                (ext_outputs[0], post_inputs[0]),
+                (ext_outputs[1], post_inputs[1]),
+                (ext_outputs[2], post_inputs[2]),
+                (ext_outputs[3], post_inputs[3]),
+                (ext_outputs[4], post_inputs[4]),
             ],
         )
 
