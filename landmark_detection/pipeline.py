@@ -101,8 +101,28 @@ class Pipeline_Yolo_CVNet_SG():
         else:
             pipeline_onnx_path = pipeline_onnx_file
         
+        preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
+        postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
+
+        print('Creando versión ONNX del preprocess')
+        self._export_preprocess(self.preprocess_module, preprocess_onnx_path, test_image_path)
+
+        print('Creando versión ONNX del postprocess')
+        self._export_postprocess(self.postprocess_module, postprocess_onnx_path)
+
         print('Creando versión ONNX del pipeline completo')
-        self._export_pipeline(detector_onnx_path, extractor_onnx_path, pipeline_onnx_path)
+        self._export_pipeline(
+            preprocess_onnx_path,
+            detector_onnx_path,
+            extractor_onnx_path,
+            postprocess_onnx_path,
+            pipeline_onnx_path,
+        )
+
+        if os.path.exists(preprocess_onnx_path):
+            os.remove(preprocess_onnx_path)
+        if os.path.exists(postprocess_onnx_path):
+            os.remove(postprocess_onnx_path)
 
         # Instanciar extractor
         print('Instanciando el extractor')
@@ -149,17 +169,18 @@ class Pipeline_Yolo_CVNet_SG():
         return self.extractor.run(None, extractor_inputs)
     
     def run(self, image):
-        # Preprocesar la imagen
-        img, orig_size = self.preprocess(image)
+        """Ejecuta la inferencia completa empleando el modelo ONNX unido."""
+        if isinstance(image, str):
+            img_bgr = cv2.imread(image)
+            if img_bgr is None:
+                raise FileNotFoundError(f"No se encontró la imagen en {image}")
+            img_tensor = torch.from_numpy(img_bgr)
+        else:
+            img_tensor = torch.as_tensor(image)
 
-        # Ejecutar inferencia sobre el pipeline
-        pipeline_inputs = {self.pipeline.get_inputs()[0].name: img}
-        if len(self.pipeline.get_inputs()) > 1:
-            pipeline_inputs[self.pipeline.get_inputs()[1].name] = orig_size
+        pipeline_inputs = {self.pipeline.get_inputs()[0].name: img_tensor.numpy()}
         results = self.pipeline.run(None, pipeline_inputs)
-
-        # Postprocesar resultados
-        return self.postprocess(results, orig_size)
+        return results
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
@@ -291,21 +312,117 @@ class Pipeline_Yolo_CVNet_SG():
 
         onnx.save(model, extractor_onnx_path)
 
-    def _export_pipeline(self, detector_onnx_path: str, extractor_onnx_path: str, pipeline_onnx_path: str):
-        detector_onnx = onnx.load(detector_onnx_path)
-        extractor_onnx = onnx.load(extractor_onnx_path)
+    def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
+        img_bgr = cv2.imread(test_image_path)
+        if img_bgr is None:
+            raise FileNotFoundError(f"No se encontró {test_image_path}")
+        img_tensor = torch.from_numpy(img_bgr)
 
-        merged_model = compose.merge_models(
-            detector_onnx,
-            extractor_onnx,
-            io_map=[
-                ("images_out", "image"),
-                ("output0", "detections"),
-                ("orig_size_det_out", "orig_size"),
-            ]
+        torch.onnx.export(
+            preprocess_module,
+            img_tensor,
+            preprocess_onnx_path,
+            opset_version=16,
+            input_names=["image_bgr"],
+            output_names=["image", "orig_size"],
+            dynamic_axes={"image_bgr": {0: "h", 1: "w"}},
+            do_constant_folding=True,
         )
 
-        onnx.checker.check_model(merged_model)  # valida topológica y esquemas
+    def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
+        dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
+        dummy_scores = torch.zeros((1,), dtype=torch.float32)
+        dummy_classes = torch.zeros((1,), dtype=torch.int64)
+        dummy_descriptors = torch.zeros((1, 2048), dtype=torch.float32)
+        dummy_orig = torch.tensor([float(self.image_dim[0]), float(self.image_dim[1])], dtype=torch.float32)
+
+        torch.onnx.export(
+            postprocess_module,
+            (
+                dummy_boxes,
+                dummy_scores,
+                dummy_classes,
+                dummy_descriptors,
+                dummy_orig,
+            ),
+            postprocess_onnx_path,
+            opset_version=16,
+            input_names=[
+                "final_boxes",
+                "final_scores",
+                "final_classes",
+                "descriptors",
+                "orig_size",
+            ],
+            output_names=["boxes", "scores", "classes", "descriptors"],
+            dynamic_axes={
+                "final_boxes": {0: "num_boxes"},
+                "final_scores": {0: "num_boxes"},
+                "final_classes": {0: "num_boxes"},
+                "descriptors": {0: "num_boxes"},
+            },
+            do_constant_folding=True,
+        )
+
+    def _export_pipeline(
+        self,
+        preprocess_onnx_path: str,
+        detector_onnx_path: str,
+        extractor_onnx_path: str,
+        postprocess_onnx_path: str,
+        pipeline_onnx_path: str,
+    ):
+        preprocess_onnx = onnx.load(preprocess_onnx_path)
+        detector_onnx = onnx.load(detector_onnx_path)
+        extractor_onnx = onnx.load(extractor_onnx_path)
+        postprocess_onnx = onnx.load(postprocess_onnx_path)
+
+        # Prefix graphs to avoid name collisions when merging
+        detector_onnx = compose.add_prefix(detector_onnx, "det_")
+        extractor_onnx = compose.add_prefix(extractor_onnx, "ext_")
+        postprocess_onnx = compose.add_prefix(postprocess_onnx, "post_")
+
+        # Preprocess -> Detector
+        det_input_name = detector_onnx.graph.input[0].name
+        det_orig_name = detector_onnx.graph.input[1].name
+        merged_pd = compose.merge_models(
+            preprocess_onnx,
+            detector_onnx,
+            io_map=[
+                ("image", det_input_name),
+                ("orig_size", det_orig_name),
+            ],
+        )
+
+        # Detector -> Extractor
+        ext_inputs = [i.name for i in extractor_onnx.graph.input]
+        det_outputs = [o.name for o in detector_onnx.graph.output]
+        merged_pde = compose.merge_models(
+            merged_pd,
+            extractor_onnx,
+            io_map=[
+                (det_outputs[1], ext_inputs[1]),  # images_out -> image
+                (det_outputs[0], ext_inputs[0]),  # output0 -> detections
+                (det_outputs[2], ext_inputs[2]),  # orig_size_det_out -> orig_size
+            ],
+        )
+
+        # Extractor -> Postprocess
+        ext_outputs = [o.name for o in extractor_onnx.graph.output]
+        post_inputs = [i.name for i in postprocess_onnx.graph.input]
+        merged_model = compose.merge_models(
+            merged_pde,
+            postprocess_onnx,
+            io_map=[
+                (ext_outputs[0], post_inputs[0]),
+                (ext_outputs[1], post_inputs[1]),
+                (ext_outputs[2], post_inputs[2]),
+                (ext_outputs[3], post_inputs[3]),
+                (ext_outputs[4], post_inputs[4]),
+            ],
+        )
+
+        onnx.checker.check_model(merged_model)
         onnx.save(merged_model, pipeline_onnx_path)
 
     def to_json(self, json_path: str):
