@@ -53,22 +53,30 @@ class MainActivity : AppCompatActivity() {
 
         // DEBUG: carga la imagen fija solo una vez
         if (USE_STATIC_FRAME) {
-            staticBitmap = assets.open("debug2.jpg").use { BitmapFactory.decodeStream(it) }
-            Log.d(TAG, "🔒 Static debug frame size: ${staticBitmap?.width}×${staticBitmap?.height}")
-
-            // 2) Oculta la vista de cámara
-            previewView.visibility = View.GONE
-
-            // 3) Añade un ImageView al rootLayout con la imagen fija
-            val iv = ImageView(this).apply {
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                setImageBitmap(staticBitmap)
+            staticBitmap = try {
+                assets.open("debug2.jpg").use { BitmapFactory.decodeStream(it) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error cargando imagen estática", e)
+                null
             }
-            findViewById<FrameLayout>(R.id.rootLayout).addView(iv, 0)
+
+            staticBitmap?.let { bmp ->
+                Log.d(TAG, "🔒 Static debug frame size: ${bmp.width}×${bmp.height}")
+
+                // 2) Oculta la vista de cámara
+                previewView.visibility = View.GONE
+
+                // 3) Añade un ImageView al rootLayout con la imagen fija
+                val iv = ImageView(this).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setImageBitmap(bmp)
+                }
+                findViewById<FrameLayout>(R.id.rootLayout).addView(iv, 0)
+            } ?: Log.e(TAG, "No se pudo cargar la imagen estática")
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED
@@ -200,7 +208,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 // 1) Frame → Bitmap
                 val bmp = if (USE_STATIC_FRAME) {
-                    staticBitmap!!
+                    val sb = staticBitmap
+                    if (sb == null) {
+                        Log.e(TAG, "Static bitmap not available")
+                        imageProxy.close()
+                        return
+                    }
+                    sb
                 } else {
                     imageProxyToBitmap(imageProxy)
                 }
