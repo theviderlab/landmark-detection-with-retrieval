@@ -11,21 +11,17 @@ import org.opencv.dnn.Dnn
 import org.opencv.dnn.Net
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Encapsula la lógica de preprocesado, forward, postprocesado,
- * supresión de no-máximos (NMS) y mapeo de índices a nombres de clase
- * para un modelo YOLO exportado a ONNX.
+ * Encapsula la ejecución del modelo YOLO exportado a ONNX.
+ * El modelo contiene desde el preprocesamiento hasta el postprocesamiento,
+ * por lo que sólo es necesario convertir el Bitmap a BGR y ejecutar `forward`.
  *
  * Este detector carga automáticamente los nombres de clase desde un archivo de labels en assets.
  */
 class YoloDetector(
     context: Context,
     private val net: Net,
-    private val inputSize: Size = Size(640.0, 640.0),
-    private val confThreshold: Float = 0.5f,
-    private val nmsThreshold: Float = 0.45f,
     private val labelsAssetFile: String = "labels.txt"
 ) {
     // Carga nombres de clase desde assets/labelsAssetFile
@@ -34,8 +30,9 @@ class YoloDetector(
         .useLines { it.toList() }
 
     /**
-     * Ejecuta detección sobre un bitmap ARGB_8888 de tamaño arbitrario.
-     * Devuelve detecciones post-NMS con coordenadas en píxeles del bitmap.
+     * Ejecuta la inferencia del modelo sobre un bitmap ARGB_8888.
+     * El modelo ONNX ya incluye todo el pre y postprocesado, por lo
+     * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
         // 1) Bitmap → Mat (RGBA)
@@ -45,113 +42,53 @@ class YoloDetector(
         // 2) RGBA → BGR
         Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2BGR)
 
-        // 3) Letterbox params
-        val origW = bitmap.width.toDouble()
-        val origH = bitmap.height.toDouble()
-        val scale = min(inputSize.width / origW, inputSize.height / origH)
-        val padW = (inputSize.width - origW * scale) / 2.0
-        val padH = (inputSize.height - origH * scale) / 2.0
-
-        // 4) Resize al tamaño de input
-        Imgproc.resize(mat, mat, inputSize)
-
-        // 5) Blob + forward
+        // 3) Crear blob manteniendo el tamaño original
         val blob = Dnn.blobFromImage(
             mat,
             1.0,
-            inputSize,
+            Size(),           // sin redimensionar
             Scalar(0.0, 0.0, 0.0),
-            /*swapRB=*/ true,
+            /*swapRB=*/ false,
             /*crop=*/ false
         )
         net.setInput(blob)
 
-        // 6) Obtener salida
+        // 4) Ejecutar la red
         val outputs = mutableListOf<Mat>()
         net.forward(outputs, net.unconnectedOutLayersNames)
-        val output3d = outputs[0]
+        if (outputs.size < 3) return emptyList()
 
-        // 7) Reformar a 2D rows=boxes cols=attributes
-        val numBoxes = output3d.size(2).toInt()
-        val mat2d = output3d.reshape(1, numBoxes)
+        val boxes = outputs[0]
+        val scores = outputs[1]
+        val classes = outputs[2]
 
-        // 8) Parse detecciones crudas
-        val raw = mutableListOf<Detection>()
-        for (i in 0 until mat2d.rows()) {
-            val row = FloatArray(mat2d.cols())
-            mat2d.get(i, 0, row)
+        val detections = mutableListOf<Detection>()
+        val num = boxes.rows()
+        for (i in 0 until num) {
+            val boxArr = FloatArray(4)
+            boxes.get(i, 0, boxArr)
 
-            // Formato YOLOv8: [cx, cy, w, h, obj_conf, cls1, cls2, ...]
-            val cxNorm = row[0]
-            val cyNorm = row[1]
-            val wNorm = row[2]
-            val hNorm = row[3]
+            val scoreArr = FloatArray(1)
+            scores.get(i, 0, scoreArr)
 
-            // Mejor clase
-            val classScores = row.sliceArray(4 until row.size)
-            val bestClass = classScores.indices.maxByOrNull { classScores[it] } ?: -1
-            val clsC = if (bestClass >= 0) classScores[bestClass] else 0f
+            val clsArr = FloatArray(1)
+            classes.get(i, 0, clsArr)
 
-            val conf = clsC
-            if (conf > confThreshold) {
-                // Coordenadas en inputSize
-                val cxIn = cxNorm * inputSize.width
-                val cyIn = cyNorm * inputSize.height
-                val wIn = wNorm * inputSize.width
-                val hIn = hNorm * inputSize.height
-
-                // Revertir letterbox+scale → coords en bitmap
-                val left = ((cxIn - wIn / 2 - padW) / scale).toFloat()
-                val top = ((cyIn - hIn / 2 - padH) / scale).toFloat()
-                val right = ((cxIn + wIn / 2 - padW) / scale).toFloat()
-                val bottom = ((cyIn + hIn / 2 - padH) / scale).toFloat()
-
-                raw += Detection(
-                    cls = bestClass,
-                    score = conf,
-                    box = RectF(
-                        left.coerceAtLeast(0f),
-                        top.coerceAtLeast(0f),
-                        right.coerceAtMost(bitmap.width.toFloat()),
-                        bottom.coerceAtMost(bitmap.height.toFloat())
-                    )
+            detections += Detection(
+                cls = clsArr[0].toInt(),
+                score = scoreArr[0],
+                box = RectF(
+                    boxArr[0],
+                    boxArr[1],
+                    boxArr[2],
+                    boxArr[3]
                 )
-            }
+            )
         }
 
-        // 9) Aplicar NMS y devolver detecciones finales
-        return applyNMS(raw, nmsThreshold)
+        return detections
     }
 
-    /**
-     * Supresión de no-máximos: filtra detecciones solapadas.
-     */
-    private fun applyNMS(detections: List<Detection>, iouThresh: Float): List<Detection> {
-        val sorted = detections.sortedByDescending { it.score }
-        val kept = mutableListOf<Detection>()
-        for (det in sorted) {
-            if (kept.none { iou(it.box, det.box) > iouThresh }) {
-                kept += det
-            }
-        }
-        return kept
-    }
-
-    /**
-     * Calcula el IoU entre dos RectF.
-     */
-    private fun iou(a: RectF, b: RectF): Float {
-        val x1 = max(a.left, b.left)
-        val y1 = max(a.top, b.top)
-        val x2 = min(a.right, b.right)
-        val y2 = min(a.bottom, b.bottom)
-        val interW = (x2 - x1).coerceAtLeast(0f)
-        val interH = (y2 - y1).coerceAtLeast(0f)
-        val interArea = interW * interH
-        val areaA = (a.right - a.left) * (a.bottom - a.top)
-        val areaB = (b.right - b.left) * (b.bottom - b.top)
-        return interArea / (areaA + areaB - interArea)
-    }
 
     /**
      * detect raw + map coords from bitmap→view
