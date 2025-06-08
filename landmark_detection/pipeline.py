@@ -330,7 +330,7 @@ class Pipeline_Yolo_CVNet_SG():
         )
 
     def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
-        dummy_boxes = torch.zeros((1, len(self.scales), 4), dtype=torch.float32)
+        dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
         dummy_scores = torch.zeros((1,), dtype=torch.float32)
         dummy_classes = torch.zeros((1,), dtype=torch.int64)
         dummy_descriptors = torch.zeros((1, 2048), dtype=torch.float32)
