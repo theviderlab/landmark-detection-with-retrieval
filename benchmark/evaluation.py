@@ -1,5 +1,8 @@
 import os
 from benchmark.revisitop.dataset import configdataset
+import cv2
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 from benchmark.revisitop.evaluate import compute_map
 
@@ -167,3 +170,101 @@ def run_evaluation(
         "mpr_medium": mprM,
         "mpr_hard": mprH,
     }
+
+
+def show_inference_example(
+    df_result,
+    descriptors_final,
+    q_idx: int = 0,
+    top_n: int = 5,
+    dataset: str = "rparis6k",
+    use_bbox: bool = False,
+):
+    """Muestra un ejemplo de inferencia para un ``query`` dado.
+
+    Parameters
+    ----------
+    df_result : pandas.DataFrame
+        Tabla con los resultados de detección y descriptores.
+    descriptors_final : numpy.ndarray
+        Descriptores de las imágenes en el mismo orden que ``df_result``.
+    q_idx : int, optional
+        Índice de la imagen de consulta que se quiere visualizar.
+    top_n : int, optional
+        Número de imágenes recuperadas a mostrar.
+    dataset : str, optional
+        Conjunto de evaluación (``roxford5k`` o ``rparis6k``).
+    use_bbox : bool, optional
+        Si es ``True`` se emplean las ``bounding boxes`` para calcular
+        similitud.
+    """
+
+    DATASETS_PATH = os.path.abspath("datasets")
+
+    cfg = configdataset(dataset, DATASETS_PATH)
+
+    query_image_names = np.array(cfg["qimlist"]) + cfg["ext"]
+    q_idx_map = {name: idx for idx, name in enumerate(query_image_names)}
+    df = df_result.copy()
+    df["q_img_id"] = df["image_name"].map(q_idx_map).fillna(-1).astype(int)
+
+    db_image_names = np.array(cfg["imlist"]) + cfg["ext"]
+    db_idx_map = {name: idx for idx, name in enumerate(db_image_names)}
+    df["db_img_id"] = df["image_name"].map(db_idx_map).fillna(-1).astype(int)
+
+    mask_img_full = df["class_id"] == -1
+    mask_selection = np.ones(len(df), dtype=bool) if use_bbox else mask_img_full
+
+    mask_query = df["image_name"].isin(query_image_names)
+    query_index = (
+        df[mask_query & mask_img_full].sort_values("q_img_id").index
+    )
+    Q = descriptors_final[query_index]
+
+    mask_db = df["image_name"].isin(db_image_names)
+    db_index = (
+        df[mask_db & mask_selection].sort_values("db_img_id").index
+    )
+    X = descriptors_final[db_index]
+
+    if q_idx < 0 or q_idx >= len(Q):
+        raise ValueError("El indice de consulta esta fuera de rango")
+
+    sim = np.dot(X, Q[q_idx])
+    ranks = np.argsort(-sim)
+    final_ranks = df.loc[db_index, "db_img_id"].values[ranks]
+
+    gnd = cfg["gnd"][q_idx]
+    ok_ids = set(np.concatenate([gnd.get("easy", []), gnd.get("hard", [])]))
+
+    n_show = min(top_n, len(final_ranks))
+    fig, axes = plt.subplots(1, n_show + 1, figsize=(3 * (n_show + 1), 3))
+
+    q_path = cfg["qim_fname"](cfg, q_idx)
+    q_img = cv2.cvtColor(cv2.imread(q_path), cv2.COLOR_BGR2RGB)
+    axes[0].imshow(q_img)
+    axes[0].set_title("Query")
+    axes[0].axis("off")
+
+    for i in range(n_show):
+        db_id = final_ranks[i]
+        img_path = cfg["im_fname"](cfg, db_id)
+        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        ax = axes[i + 1]
+        ax.imshow(img)
+        ax.axis("off")
+        if db_id in ok_ids:
+            color = "green"
+            label = "correcto"
+        else:
+            color = "red"
+            label = "incorrecto"
+        rect = patches.Rectangle(
+            (0, 0), img.shape[1], img.shape[0], linewidth=4, edgecolor=color, facecolor="none"
+        )
+        ax.add_patch(rect)
+        ax.set_title(f"{i + 1}: {label}", color=color)
+
+    plt.tight_layout()
+    plt.show()
+
