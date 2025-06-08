@@ -175,12 +175,12 @@ def run_evaluation(
 def show_inference_example(
     df_result,
     descriptors_final,
-    q_idx: int = 0,
+    q_idx=0,
     top_n: int = 5,
     dataset: str = "rparis6k",
     use_bbox: bool = False,
 ):
-    """Muestra un ejemplo de inferencia para un ``query`` dado.
+    """Muestra un ejemplo de inferencia para una o varias consultas.
 
     Parameters
     ----------
@@ -188,8 +188,9 @@ def show_inference_example(
         Tabla con los resultados de detección y descriptores.
     descriptors_final : numpy.ndarray
         Descriptores de las imágenes en el mismo orden que ``df_result``.
-    q_idx : int, optional
-        Índice de la imagen de consulta que se quiere visualizar.
+    q_idx : int or Sequence[int], optional
+        Índice o índices de las imágenes de consulta a visualizar. Cada
+        consulta se mostrará en una fila.
     top_n : int, optional
         Número de imágenes recuperadas a mostrar.
     dataset : str, optional
@@ -227,43 +228,56 @@ def show_inference_example(
     )
     X = descriptors_final[db_index]
 
-    if q_idx < 0 or q_idx >= len(Q):
-        raise ValueError("El indice de consulta esta fuera de rango")
+    if isinstance(q_idx, (list, tuple, np.ndarray)):
+        q_indices = list(q_idx)
+    else:
+        q_indices = [q_idx]
 
-    sim = np.dot(X, Q[q_idx])
-    ranks = np.argsort(-sim)
-    final_ranks = df.loc[db_index, "db_img_id"].values[ranks]
+    for qi in q_indices:
+        if qi < 0 or qi >= len(Q):
+            raise ValueError("El indice de consulta esta fuera de rango")
 
-    gnd = cfg["gnd"][q_idx]
-    ok_ids = set(np.concatenate([gnd.get("easy", []), gnd.get("hard", [])]))
+    n_rows = len(q_indices)
+    fig, axes = plt.subplots(n_rows, top_n + 1, figsize=(3 * (top_n + 1), 3 * n_rows))
+    axes = np.atleast_2d(axes)
 
-    n_show = min(top_n, len(final_ranks))
-    fig, axes = plt.subplots(1, n_show + 1, figsize=(3 * (n_show + 1), 3))
+    for row, qi in enumerate(q_indices):
+        sim = np.dot(X, Q[qi])
+        ranks = np.argsort(-sim)
+        final_ranks = df.loc[db_index, "db_img_id"].values[ranks]
 
-    q_path = cfg["qim_fname"](cfg, q_idx)
-    q_img = cv2.cvtColor(cv2.imread(q_path), cv2.COLOR_BGR2RGB)
-    axes[0].imshow(q_img)
-    axes[0].set_title("Query")
-    axes[0].axis("off")
+        gnd = cfg["gnd"][qi]
+        ok_ids = set(np.concatenate([gnd.get("easy", []), gnd.get("hard", [])]))
 
-    for i in range(n_show):
-        db_id = final_ranks[i]
-        img_path = cfg["im_fname"](cfg, db_id)
-        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-        ax = axes[i + 1]
-        ax.imshow(img)
-        ax.axis("off")
-        if db_id in ok_ids:
-            color = "green"
-            label = "correcto"
-        else:
-            color = "red"
-            label = "incorrecto"
-        rect = patches.Rectangle(
-            (0, 0), img.shape[1], img.shape[0], linewidth=4, edgecolor=color, facecolor="none"
-        )
-        ax.add_patch(rect)
-        ax.set_title(f"{i + 1}: {label}", color=color)
+        n_show = min(top_n, len(final_ranks))
+
+        q_path = cfg["qim_fname"](cfg, qi)
+        q_img = cv2.cvtColor(cv2.imread(q_path), cv2.COLOR_BGR2RGB)
+        axes[row, 0].imshow(q_img)
+        axes[row, 0].set_title("Query")
+        axes[row, 0].axis("off")
+
+        for i in range(n_show):
+            db_id = final_ranks[i]
+            img_path = cfg["im_fname"](cfg, db_id)
+            img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+            ax = axes[row, i + 1]
+            ax.imshow(img)
+            ax.axis("off")
+            if db_id in ok_ids:
+                color = "green"
+                label = "correcto"
+            else:
+                color = "red"
+                label = "incorrecto"
+            rect = patches.Rectangle(
+                (0, 0), img.shape[1], img.shape[0], linewidth=4, edgecolor=color, facecolor="none"
+            )
+            ax.add_patch(rect)
+            ax.set_title(f"{i + 1}: {label}", color=color)
+
+        for j in range(n_show, top_n):
+            axes[row, j + 1].axis("off")
 
     plt.tight_layout()
     plt.show()
