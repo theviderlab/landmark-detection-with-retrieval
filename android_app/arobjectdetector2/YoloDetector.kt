@@ -37,56 +37,63 @@ class YoloDetector(
     fun detect(bitmap: Bitmap): List<Detection> {
         // 1) Bitmap → Mat (RGBA)
         val mat = Mat()
-        Utils.bitmapToMat(bitmap, mat)
-
-        // 2) RGBA → BGR
-        Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2BGR)
-
-        // 3) Crear blob manteniendo el tamaño original
-        val blob = Dnn.blobFromImage(
-            mat,
-            1.0,
-            Size(),           // sin redimensionar
-            Scalar(0.0, 0.0, 0.0),
-            /*swapRB=*/ false,
-            /*crop=*/ false
-        )
-        net.setInput(blob)
-
-        // 4) Ejecutar la red
+        var blob: Mat? = null
         val outputs = mutableListOf<Mat>()
-        net.forward(outputs, net.unconnectedOutLayersNames)
-        if (outputs.size < 3) return emptyList()
+        try {
+            Utils.bitmapToMat(bitmap, mat)
 
-        val boxes = outputs[0]
-        val scores = outputs[1]
-        val classes = outputs[2]
+            // 2) RGBA → BGR
+            Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2BGR)
 
-        val detections = mutableListOf<Detection>()
-        val num = boxes.rows()
-        for (i in 0 until num) {
-            val boxArr = FloatArray(4)
-            boxes.get(i, 0, boxArr)
-
-            val scoreArr = FloatArray(1)
-            scores.get(i, 0, scoreArr)
-
-            val clsArr = FloatArray(1)
-            classes.get(i, 0, clsArr)
-
-            detections += Detection(
-                cls = clsArr[0].toInt(),
-                score = scoreArr[0],
-                box = RectF(
-                    boxArr[0],
-                    boxArr[1],
-                    boxArr[2],
-                    boxArr[3]
-                )
+            // 3) Crear blob manteniendo el tamaño original
+            blob = Dnn.blobFromImage(
+                mat,
+                1.0,
+                Size(),           // sin redimensionar
+                Scalar(0.0, 0.0, 0.0),
+                /*swapRB=*/ false,
+                /*crop=*/ false
             )
-        }
+            net.setInput(blob)
 
-        return detections
+            // 4) Ejecutar la red
+            net.forward(outputs, net.unconnectedOutLayersNames)
+            if (outputs.size < 3) return emptyList()
+
+            val boxes = outputs[0]
+            val scores = outputs[1]
+            val classes = outputs[2]
+
+            val detections = mutableListOf<Detection>()
+            val num = boxes.rows()
+            for (i in 0 until num) {
+                val boxArr = FloatArray(4)
+                boxes.get(i, 0, boxArr)
+
+                val scoreArr = FloatArray(1)
+                scores.get(i, 0, scoreArr)
+
+                val clsArr = FloatArray(1)
+                classes.get(i, 0, clsArr)
+
+                detections += Detection(
+                    cls = clsArr[0].toInt(),
+                    score = scoreArr[0],
+                    box = RectF(
+                        boxArr[0],
+                        boxArr[1],
+                        boxArr[2],
+                        boxArr[3]
+                    )
+                )
+            }
+
+            return detections
+        } finally {
+            mat.release()
+            blob?.release()
+            outputs.forEach { it.release() }
+        }
     }
 
 
