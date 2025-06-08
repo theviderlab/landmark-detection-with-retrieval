@@ -3,12 +3,18 @@ package com.example.arobjectdetector2
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 
 class BoxOverlay @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
+
+    companion object {
+        /** When true, draw a fixed debug rectangle regardless of detections. */
+        const val SHOW_DEBUG_BOX = false
+    }
 
     private val boxPaint = Paint().apply {
         style = Paint.Style.STROKE
@@ -37,6 +43,16 @@ class BoxOverlay @JvmOverloads constructor(
                 r.top - 10,
                 textPaint
             )
+        }
+        if (SHOW_DEBUG_BOX) {
+            val r = RectF(
+                width * 0.2f,
+                height * 0.2f,
+                width * 0.8f,
+                height * 0.8f,
+            )
+            canvas.drawRect(r, boxPaint)
+            canvas.drawText("debug", r.left, r.top - 10, textPaint)
         }
     }
 }
