@@ -79,10 +79,8 @@ class MainActivity : AppCompatActivity() {
             } ?: Log.e(TAG, "No se pudo cargar la imagen estática")
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                == PackageManager.PERMISSION_GRANTED
+                != PackageManager.PERMISSION_GRANTED
             ) {
-                startCameraX()
-            } else {
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.CAMERA),
@@ -93,19 +91,6 @@ class MainActivity : AppCompatActivity() {
 
         loadDnnModel()
 
-        previewView.post {
-            // espera a que previewView (y overlay) tengan width/height válidos
-            detector?.let { det ->
-                staticBitmap?.let { bmp ->
-                    val viewDets = det.detectOnView(
-                        bmp,
-                        previewView.width,
-                        previewView.height
-                    )
-                    overlay.setDetections(viewDets)
-                }
-            }
-        }
 
         val metrics = DisplayMetrics().also { windowManager.defaultDisplay.getMetrics(it) }
         Log.d(TAG, "📐 Pantalla completa: ${metrics.widthPixels}×${metrics.heightPixels}")
@@ -164,10 +149,34 @@ class MainActivity : AppCompatActivity() {
                     this,
                     net = dnnNet!!
                 )
+                onDetectorReady()
             } catch (e: Exception) {
                 Log.e(TAG, "Error cargando el modelo ONNX", e)
             }
         }.start()
+    }
+
+    private fun onDetectorReady() {
+        runOnUiThread {
+            if (USE_STATIC_FRAME) {
+                val det = detector ?: return@runOnUiThread
+                val bmp = staticBitmap ?: return@runOnUiThread
+                val viewDets = det.detectOnView(
+                    bmp,
+                    previewView.width,
+                    previewView.height
+                )
+                overlay.setDetections(viewDets)
+            } else {
+                if (ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    startCameraX()
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
