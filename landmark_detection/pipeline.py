@@ -179,6 +179,8 @@ class Pipeline_Yolo_CVNet_SG():
         else:
             img_bgr = image
 
+        orig_h, orig_w = img_bgr.shape[:2]
+
         if self.orig_size is not None:
             img_bgr = cv2.resize(img_bgr, self.orig_size)
 
@@ -186,6 +188,21 @@ class Pipeline_Yolo_CVNet_SG():
 
         pipeline_inputs = {self.pipeline.get_inputs()[0].name: img_tensor.numpy()}
         results = self.pipeline.run(None, pipeline_inputs)
+
+        if self.orig_size is not None and len(results) > 0:
+            boxes = torch.as_tensor(results[0])
+            scale = torch.tensor(
+                [
+                    orig_w / float(self.orig_size[0]),
+                    orig_h / float(self.orig_size[1]),
+                    orig_w / float(self.orig_size[0]),
+                    orig_h / float(self.orig_size[1]),
+                ],
+                dtype=boxes.dtype,
+            )
+            results = list(results)
+            results[0] = (boxes * scale).numpy()
+
         return results
 
     def _export_detector(self, detector):
