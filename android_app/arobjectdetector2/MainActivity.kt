@@ -160,15 +160,22 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "DNN ONNX cargado correctamente")
 
                 // Inicializa el detector con la red y el tamaño de entrada
-                detector = YoloDetector(
+            detector = YoloDetector(
+                this,
+                net = dnnNet!!
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cargando el modelo ONNX", e)
+            runOnUiThread {
+                Toast.makeText(
                     this,
-                    net = dnnNet!!
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Error cargando el modelo ONNX", e)
+                    "Error cargando el modelo: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
             }
-        }.start()
-    }
+        }
+    }.start()
+}
 
     override fun onDestroy() {
         super.onDestroy()
