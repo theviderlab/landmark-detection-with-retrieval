@@ -344,11 +344,17 @@ class Pipeline_Yolo_CVNet_SG():
         )
         merged_model.graph.input.append(orig_input)
 
-        # Conectar orig_size a la etapa de postprocesado
+        # Conectar orig_size a la etapa de postprocesado y eliminar el input
+        # prefijado generado al fusionar los modelos
         for node in merged_model.graph.node:
             for i, inp in enumerate(node.input):
                 if inp == post_inputs[4]:
                     node.input[i] = "orig_size"
+
+        for i, inp in enumerate(list(merged_model.graph.input)):
+            if inp.name == post_inputs[4]:
+                del merged_model.graph.input[i]
+                break
 
         onnx.checker.check_model(merged_model)
         onnx.save(merged_model, pipeline_onnx_path)
