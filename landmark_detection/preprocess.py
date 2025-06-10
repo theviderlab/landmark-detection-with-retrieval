@@ -9,10 +9,11 @@ class PreprocessModule(nn.Module):
         super().__init__()
         self.image_dim = image_dim
 
-    def forward(self, img_bgr: torch.Tensor):
-        h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
-        w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
-        orig_size = torch.stack([w, h])
+    def forward(self, img_bgr: torch.Tensor, orig_size: torch.Tensor | None = None):
+        if orig_size is None:
+            h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
+            w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
+            orig_size = torch.stack([w, h])
         img_rgb = img_bgr.permute(2, 0, 1).float()
         img_rgb = img_rgb[[2, 1, 0], ...]  # BGR -> RGB
         img_rgb = img_rgb.unsqueeze(0)
