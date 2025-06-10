@@ -22,6 +22,7 @@ class Pipeline_Yolo_CVNet_SG():
         extractor_onnx_file: str = "cvnet-sg.onnx",
         pipeline_onnx_file: str = "pipeline-yolo-cvnet-sg.onnx",
         image_dim: tuple[int] = (640, 640),
+        orig_size: tuple[int, int] | None = None,
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
                                       298,310,335,351,354,390,393,401,403,439,442,457,466,489,510,512,
                                       514,524,530,531,543,546,554,565,573,580,587,588,591],
@@ -38,7 +39,8 @@ class Pipeline_Yolo_CVNet_SG():
         eps: float       = 1e-8
     ):
         self.image_dim = image_dim
-        self.preprocess_module = PreprocessModule(image_dim)
+        self.orig_size = orig_size
+        self.preprocess_module = PreprocessModule(image_dim, orig_size)
         self.postprocess_module = PostprocessModule(image_dim)
         # Obtener el directorio donde está este archivo Python (el módulo)
         module_dir = os.path.dirname(os.path.abspath(__file__))
@@ -174,12 +176,33 @@ class Pipeline_Yolo_CVNet_SG():
             img_bgr = cv2.imread(image)
             if img_bgr is None:
                 raise FileNotFoundError(f"No se encontró la imagen en {image}")
-            img_tensor = torch.from_numpy(img_bgr)
         else:
-            img_tensor = torch.as_tensor(image)
+            img_bgr = image
+
+        orig_h, orig_w = img_bgr.shape[:2]
+
+        if self.orig_size is not None:
+            img_bgr = cv2.resize(img_bgr, self.orig_size)
+
+        img_tensor = torch.as_tensor(img_bgr)
 
         pipeline_inputs = {self.pipeline.get_inputs()[0].name: img_tensor.numpy()}
         results = self.pipeline.run(None, pipeline_inputs)
+
+        if self.orig_size is not None and len(results) > 0:
+            boxes = torch.as_tensor(results[0])
+            scale = torch.tensor(
+                [
+                    orig_w / float(self.orig_size[0]),
+                    orig_h / float(self.orig_size[1]),
+                    orig_w / float(self.orig_size[0]),
+                    orig_h / float(self.orig_size[1]),
+                ],
+                dtype=boxes.dtype,
+            )
+            results = list(results)
+            results[0] = (boxes * scale).numpy()
+
         return results
 
     def _export_detector(self, detector):
@@ -296,20 +319,30 @@ class Pipeline_Yolo_CVNet_SG():
         onnx.save(model, extractor_onnx_path)
 
     def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
-        img_bgr = cv2.imread(test_image_path)
-        if img_bgr is None:
-            raise FileNotFoundError(f"No se encontró {test_image_path}")
-        img_tensor = torch.from_numpy(img_bgr)
+        if self.orig_size is not None:
+            img_tensor = torch.zeros(
+                (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
+            )
+        else:
+            img_bgr = cv2.imread(test_image_path)
+            if img_bgr is None:
+                raise FileNotFoundError(f"No se encontró {test_image_path}")
+            img_tensor = torch.from_numpy(img_bgr)
+
+        export_args = dict(
+            opset_version=16,
+            input_names=["image_bgr"],
+            output_names=["image", "orig_size"],
+            do_constant_folding=True,
+        )
+        if self.orig_size is None:
+            export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
 
         torch.onnx.export(
             preprocess_module,
             img_tensor,
             preprocess_onnx_path,
-            opset_version=16,
-            input_names=["image_bgr"],
-            output_names=["image", "orig_size"],
-            dynamic_axes={"image_bgr": {0: "h", 1: "w"}},
-            do_constant_folding=True,
+            **export_args,
         )
 
     def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
