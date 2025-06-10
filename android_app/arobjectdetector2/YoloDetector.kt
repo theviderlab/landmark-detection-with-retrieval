@@ -18,6 +18,8 @@ class YoloDetector(
     private val session: OrtSession,
     private val labelsAssetFile: String = "labels.txt"
 ) {
+    private val inputWidth = 640
+    private val inputHeight = 640
     // Carga nombres de clase desde assets/labelsAssetFile
     private val classNames: List<String> = context.assets.open(labelsAssetFile)
         .bufferedReader()
@@ -29,11 +31,17 @@ class YoloDetector(
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
-        // Convert bitmap to BGR byte buffer expected by the model
-        val width = bitmap.width
-        val height = bitmap.height
+        // El pipeline ONNX espera una imagen de 640x640 en BGR.
+        val scaledBmp = if (bitmap.width != inputWidth || bitmap.height != inputHeight) {
+            Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, false)
+        } else {
+            bitmap
+        }
+
+        val width = scaledBmp.width
+        val height = scaledBmp.height
         val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        scaledBmp.getPixels(pixels, 0, width, 0, 0, width, height)
         val buffer = java.nio.ByteBuffer.allocateDirect(width * height * 3)
         buffer.order(java.nio.ByteOrder.nativeOrder())
         for (p in pixels) {
@@ -56,18 +64,24 @@ class YoloDetector(
         val classes = (results[2].value as FloatArray)
 
         val detections = mutableListOf<Detection>()
+        val wScale = bitmap.width.toFloat() / inputWidth.toFloat()
+        val hScale = bitmap.height.toFloat() / inputHeight.toFloat()
         for (i in boxes.indices) {
             val boxArr = boxes[i]
             detections += Detection(
                 cls = classes[i].toInt(),
                 score = scores[i],
                 box = RectF(
-                    boxArr[0],
-                    boxArr[1],
-                    boxArr[2],
-                    boxArr[3]
+                    boxArr[0] * wScale,
+                    boxArr[1] * hScale,
+                    boxArr[2] * wScale,
+                    boxArr[3] * hScale
                 )
             )
+        }
+
+        if (scaledBmp !== bitmap) {
+            scaledBmp.recycle()
         }
 
         return detections
