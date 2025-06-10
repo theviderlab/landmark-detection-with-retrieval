@@ -7,6 +7,7 @@ import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.core.Size
+import org.opencv.core.CvType
 import org.opencv.dnn.Dnn
 import org.opencv.dnn.Net
 import org.opencv.imgproc.Imgproc
@@ -38,6 +39,7 @@ class YoloDetector(
         // 1) Bitmap → Mat (RGBA)
         val mat = Mat()
         var blob: Mat? = null
+        var origSize: Mat? = null
         val outputs = mutableListOf<Mat>()
         try {
             Utils.bitmapToMat(bitmap, mat)
@@ -54,7 +56,21 @@ class YoloDetector(
                 /*swapRB=*/ false,
                 /*crop=*/ false
             )
-            net.setInput(blob)
+
+            // tamaño original como tensor 1x2
+            origSize = Mat(1, 2, CvType.CV_32FC1)
+            origSize.put(
+                0,
+                0,
+                floatArrayOf(
+                    bitmap.width.toFloat(),
+                    bitmap.height.toFloat(),
+                )
+            )
+
+            // especificar nombres de entrada del modelo
+            net.setInput(blob, "image_bgr")
+            net.setInput(origSize, "orig_size")
 
             // 4) Ejecutar la red
             net.forward(outputs, net.unconnectedOutLayersNames)
@@ -92,6 +108,7 @@ class YoloDetector(
         } finally {
             mat.release()
             blob?.release()
+            origSize?.release()
             outputs.forEach { it.release() }
         }
     }
