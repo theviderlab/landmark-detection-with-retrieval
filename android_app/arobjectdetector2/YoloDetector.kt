@@ -59,9 +59,13 @@ class YoloDetector(
 
             // tamaño original como tensor 1x2
             origSize = Mat(1, 2, CvType.CV_32FC1)
-            origSize.put(0, 0,
-                bitmap.width.toFloat(),
-                bitmap.height.toFloat()
+            origSize.put(
+                0,
+                0,
+                floatArrayOf(
+                    bitmap.width.toFloat(),
+                    bitmap.height.toFloat(),
+                )
             )
 
             // especificar nombres de entrada del modelo
