@@ -174,7 +174,10 @@ class Pipeline_Yolo_CVNet_SG():
         else:
             img_tensor = torch.as_tensor(image)
 
-        orig = torch.tensor([float(img_tensor.shape[1]), float(img_tensor.shape[0])], dtype=torch.float32)
+        orig = torch.tensor([
+            img_tensor.shape[1],
+            img_tensor.shape[0],
+        ], dtype=torch.float32)
         pipeline_inputs = {
             self.pipeline.get_inputs()[0].name: img_tensor.numpy(),
             self.pipeline.get_inputs()[1].name: orig.numpy(),
@@ -297,12 +300,14 @@ class Pipeline_Yolo_CVNet_SG():
 
         # Preprocess -> Detector
         det_input_name = detector_onnx.graph.input[0].name
+        det_output_names = [o.name for o in detector_onnx.graph.output]
         merged_pd = compose.merge_models(
             preprocess_onnx,
             detector_onnx,
             io_map=[
                 ("image", det_input_name),
             ],
+            outputs=det_output_names + ["image"],
         )
 
         # Detector -> Extractor
