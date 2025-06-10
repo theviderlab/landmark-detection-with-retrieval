@@ -176,9 +176,13 @@ class Pipeline_Yolo_CVNet_SG():
             img_bgr = cv2.imread(image)
             if img_bgr is None:
                 raise FileNotFoundError(f"No se encontró la imagen en {image}")
-            img_tensor = torch.from_numpy(img_bgr)
         else:
-            img_tensor = torch.as_tensor(image)
+            img_bgr = image
+
+        if self.orig_size is not None:
+            img_bgr = cv2.resize(img_bgr, self.orig_size)
+
+        img_tensor = torch.as_tensor(img_bgr)
 
         pipeline_inputs = {self.pipeline.get_inputs()[0].name: img_tensor.numpy()}
         results = self.pipeline.run(None, pipeline_inputs)
