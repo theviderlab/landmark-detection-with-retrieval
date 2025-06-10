@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
 
                 val viewDetections = det.detectOnView(bmp, previewView.width, previewView.height)
+                Log.d(TAG, "Detections on view: ${viewDetections.size}")
 
                 runOnUiThread {
                     overlay.setDetections(viewDetections)

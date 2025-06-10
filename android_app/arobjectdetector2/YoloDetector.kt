@@ -6,6 +6,7 @@ import android.graphics.RectF
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.util.Log
 import kotlin.math.max
 
 /**
@@ -20,6 +21,9 @@ class YoloDetector(
     private val session: OrtSession,
     private val labelsAssetFile: String = "labels.txt"
 ) {
+    companion object {
+        private const val TAG = "YoloDetector"
+    }
     private val inputWidth = 640
     private val inputHeight = 640
     // Carga nombres de clase desde assets/labelsAssetFile
@@ -59,6 +63,8 @@ class YoloDetector(
                 val scores = result[1].value as FloatArray
                 val classes = result[2].value as LongArray
 
+                Log.d(TAG, "ORT outputs -> boxes=${boxes.size} scores=${scores.size}")
+
                 val detections = mutableListOf<Detection>()
                 for (i in scores.indices) {
                     val box = boxes[i]
@@ -67,6 +73,12 @@ class YoloDetector(
                         score = scores[i],
                         box = RectF(box[0], box[1], box[2], box[3])
                     )
+                }
+                if (detections.isNotEmpty()) {
+                    val d = detections.first()
+                    Log.d(TAG, "First det -> cls=${d.cls} score=${d.score} box=${d.box}")
+                } else {
+                    Log.d(TAG, "No detections")
                 }
                 return detections
             }
