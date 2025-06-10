@@ -195,14 +195,11 @@ class Pipeline_Yolo_CVNet_SG():
         else:
             detector_onnx_path = paths
 
-        # Cargar modelo en ONNX
+        # Cargar modelo en ONNX y exponer imagen y orig_size
         model = onnx.load(detector_onnx_path)
         graph = model.graph
 
-        # Identificar el nombre del input de YOLO
         input_name = graph.input[0].name
-
-        # Crear un nodo Identity que copie ese input a un nuevo tensor "images_out"
         identity_node = helper.make_node(
             "Identity",
             inputs=[input_name],
@@ -210,7 +207,6 @@ class Pipeline_Yolo_CVNet_SG():
             name="Identity_ExposeImages",
         )
 
-        # Nodo para propagar orig_size sin modificar
         orig_node = helper.make_node(
             "Identity",
             inputs=["orig_size"],
@@ -218,28 +214,17 @@ class Pipeline_Yolo_CVNet_SG():
             name="Identity_ExposeOrigSizeDet",
         )
 
-        # Añadir los nodos al grafo
         graph.node.extend([identity_node, orig_node])
 
-        # Declarar “images_out” como nuevo output del grafo, con la misma shape/dtipo que input_name
-        # Podemos extraer la shape/dtipo del input para no recortarla a mano:
-        input_type = graph.input[0].type.tensor_type.elem_type  # debería ser FLOAT (1)
-        input_shape = []
-        for dim in graph.input[0].type.tensor_type.shape.dim:
-            # Si el dim_value > 0, lo tomamos; si es simbólico, dejamos dim_param
-            if dim.dim_value > 0:
-                input_shape.append(dim.dim_value)
-            else:
-                input_shape.append(dim.dim_param)
-
+        input_type = graph.input[0].type.tensor_type.elem_type
+        input_shape = [dim.dim_value if dim.dim_value > 0 else dim.dim_param for dim in graph.input[0].type.tensor_type.shape.dim]
         new_output = helper.make_tensor_value_info(
             name="images_out",
             elem_type=input_type,
-            shape=input_shape
+            shape=input_shape,
         )
         graph.output.append(new_output)
 
-        # Declarar el nuevo input y output para orig_size
         orig_input = helper.make_tensor_value_info(
             name="orig_size",
             elem_type=onnx.TensorProto.FLOAT,
@@ -254,7 +239,6 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(orig_output)
 
-        # Guardar el ONNX modificado en disco
         onnx.save(model, detector_onnx_path)
 
         return detector_onnx_path
@@ -283,7 +267,6 @@ class Pipeline_Yolo_CVNet_SG():
             },
             do_constant_folding=True
         )
-
         # Añadir bypass para orig_size
         model = onnx.load(extractor_onnx_path)
         graph = model.graph
