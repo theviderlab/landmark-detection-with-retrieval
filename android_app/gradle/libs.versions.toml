@@ -15,6 +15,7 @@ material = "1.9.0"
 camerax = "1.4.1"
 
 sceneview = "2.3.0"
+onnxruntime = "1.17.0"
 
 
 [libraries]
@@ -46,6 +47,8 @@ cameraCamera2    = { group = "androidx.camera", name = "camera-camera2", version
 cameraLifecycle  = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 cameraView       = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 cameraExtensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "camerax" }
+
+onnxRuntime = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
 #androidOpenCV = { group = "org.openpnp", name = "opencv", version.ref = "openCV" }
 

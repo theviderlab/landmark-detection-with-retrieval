@@ -15,8 +15,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.widget.FrameLayout
 import android.widget.ImageView
-import org.opencv.dnn.Dnn
-import org.opencv.dnn.Net
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ExecutorService
@@ -30,16 +30,12 @@ class MainActivity : AppCompatActivity() {
         private const val CAMERA_PERMISSION_REQUEST = 1
         private const val USE_STATIC_FRAME = true
 
-        init {
-            System.loadLibrary("opencv_java4")
-            Log.d(TAG, "OpenCV native lib loaded")
-        }
     }
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: BoxOverlay
     private lateinit var cameraExecutor: ExecutorService
-    private var dnnNet: Net? = null
+    private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
     private var staticBitmap: Bitmap? = null
 
@@ -156,13 +152,14 @@ class MainActivity : AppCompatActivity() {
                         input.copyTo(output)
                     }
                 }
-                dnnNet = Dnn.readNetFromONNX(tmpFile.absolutePath)
-                Log.d(TAG, "DNN ONNX cargado correctamente")
+                val env = OrtEnvironment.getEnvironment()
+                ortSession = env.createSession(tmpFile.absolutePath, OrtSession.SessionOptions())
+                Log.d(TAG, "ORT session loaded correctly")
 
-                // Inicializa el detector con la red y el tamaño de entrada
+                // Inicializa el detector
             detector = YoloDetector(
                 this,
-                net = dnnNet!!
+                session = ortSession!!
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error cargando el modelo ONNX", e)
@@ -180,6 +177,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        ortSession?.close()
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
