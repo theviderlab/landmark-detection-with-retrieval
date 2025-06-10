@@ -53,7 +53,7 @@ class YoloDetector(
         val inputName = session.inputNames.iterator().next()
         OnnxTensor.createTensor(env, buffer, longArrayOf(height.toLong(), width.toLong(), 3)).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
-                if (result.size < 3) return emptyList()
+                if (result.size() < 3) return emptyList()
 
                 val boxes = result[0].value as Array<FloatArray>
                 val scores = result[1].value as FloatArray
