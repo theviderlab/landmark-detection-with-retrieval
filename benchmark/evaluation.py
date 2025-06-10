@@ -111,6 +111,25 @@ def run_evaluation(
     ranks_id = db_index.values[ranks]
     final_ranks = df_result['db_img_id'].values[ranks_id]
 
+    if use_bbox:
+        n_db = len(db_image_names)
+        unique_ranks = np.zeros((n_db, final_ranks.shape[1]), dtype=int)
+        all_ids = np.arange(n_db)
+        for i in range(final_ranks.shape[1]):
+            seen = set()
+            uniq = []
+            for idx in final_ranks[:, i]:
+                if idx not in seen and idx != -1:
+                    seen.add(idx)
+                    uniq.append(idx)
+                if len(seen) == n_db:
+                    break
+            if len(seen) < n_db:
+                remaining = [id_ for id_ in all_ids if id_ not in seen]
+                uniq.extend(remaining)
+            unique_ranks[:, i] = np.array(uniq[:n_db])
+        final_ranks = unique_ranks
+
     # revisited evaluation
     gnd = cfg['gnd']
 
