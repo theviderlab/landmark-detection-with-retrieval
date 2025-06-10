@@ -25,6 +25,8 @@ class YoloDetector(
     private val net: Net,
     private val labelsAssetFile: String = "labels.txt"
 ) {
+    private val inputWidth = 640
+    private val inputHeight = 640
     // Carga nombres de clase desde assets/labelsAssetFile
     private val classNames: List<String> = context.assets.open(labelsAssetFile)
         .bufferedReader()
@@ -39,7 +41,6 @@ class YoloDetector(
         // 1) Bitmap → Mat (RGBA)
         val mat = Mat()
         var blob: Mat? = null
-        var origSize: Mat? = null
         val outputs = mutableListOf<Mat>()
         try {
             Utils.bitmapToMat(bitmap, mat)
@@ -51,26 +52,14 @@ class YoloDetector(
             blob = Dnn.blobFromImage(
                 mat,
                 1.0,
-                Size(),           // sin redimensionar
+                Size(inputWidth.toDouble(), inputHeight.toDouble()),
                 Scalar(0.0, 0.0, 0.0),
                 /*swapRB=*/ false,
                 /*crop=*/ false
             )
 
-            // tamaño original como tensor 1x2
-            origSize = Mat(1, 2, CvType.CV_32FC1)
-            origSize.put(
-                0,
-                0,
-                floatArrayOf(
-                    bitmap.width.toFloat(),
-                    bitmap.height.toFloat(),
-                )
-            )
-
-            // especificar nombres de entrada del modelo
+            // especificar nombre de entrada del modelo
             net.setInput(blob, "image_bgr")
-            net.setInput(origSize, "orig_size")
 
             // 4) Ejecutar la red
             net.forward(outputs, net.unconnectedOutLayersNames)
@@ -81,6 +70,8 @@ class YoloDetector(
             val classes = outputs[2]
 
             val detections = mutableListOf<Detection>()
+            val wScale = bitmap.width.toFloat() / inputWidth.toFloat()
+            val hScale = bitmap.height.toFloat() / inputHeight.toFloat()
             val num = boxes.rows()
             for (i in 0 until num) {
                 val boxArr = FloatArray(4)
@@ -96,10 +87,10 @@ class YoloDetector(
                     cls = clsArr[0].toInt(),
                     score = scoreArr[0],
                     box = RectF(
-                        boxArr[0],
-                        boxArr[1],
-                        boxArr[2],
-                        boxArr[3]
+                        boxArr[0] * wScale,
+                        boxArr[1] * hScale,
+                        boxArr[2] * wScale,
+                        boxArr[3] * hScale
                     )
                 )
             }
@@ -108,7 +99,6 @@ class YoloDetector(
         } finally {
             mat.release()
             blob?.release()
-            origSize?.release()
             outputs.forEach { it.release() }
         }
     }
