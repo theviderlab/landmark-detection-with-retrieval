@@ -1,0 +1,55 @@
+[versions]
+agp = "8.10.0"
+kotlin = "2.0.21"
+coreKtx = "1.16.0"
+lifecycleRuntimeKtx = "2.9.0"
+activityCompose = "1.10.1"
+composeBom = "2025.05.01"        # Ajusta esto a la versión de BOM que quieras
+junit = "4.13.2"
+junitVersion = "1.2.1"
+espressoCore = "3.6.1"
+
+arcore = "1.49.0"
+appcompat = "1.7.0"
+material = "1.9.0"
+camerax = "1.4.1"
+
+sceneview = "2.3.0"
+
+
+[libraries]
+androidxCoreKtx = { group = "androidx.core",             name = "core-ktx",               version.ref = "coreKtx" }
+androidxLifecycleRuntimeKtx = { group = "androidx.lifecycle",        name = "lifecycle-runtime-ktx",  version.ref = "lifecycleRuntimeKtx" }
+androidxActivityCompose = { group = "androidx.activity",         name = "activity-compose",       version.ref = "activityCompose" }
+androidxComposeBom = { group = "androidx.compose",         name = "compose-bom",            version.ref = "composeBom" }
+androidxUi = { group = "androidx.compose.ui",      name = "ui" }
+androidxUiGraphics = { group = "androidx.compose.ui",      name = "ui-graphics" }
+androidxUiToolingPreview = { group = "androidx.compose.ui",      name = "ui-tooling-preview" }
+androidxMaterial3 = { group = "androidx.compose.material3", name = "material3" }
+androidxUiTooling = { group = "androidx.compose.ui",      name = "ui-tooling" }           # debugImplementation
+androidxUiTestManifest = { group = "androidx.compose.ui",      name = "ui-test-manifest" }     # debugImplementation
+androidxUiTestJunit4 = { group = "androidx.compose.ui",      name = "ui-test-junit4" }       # androidTestImplementation
+
+# Testing
+junit                         = { group = "junit",                     name = "junit",                 version.ref = "junit" }
+androidxJunit = { group = "androidx.test.ext",         name = "junit",                 version.ref = "junitVersion" }
+androidxEspressoCore = { group = "androidx.test.espresso",    name = "espresso-core",         version.ref = "espressoCore" }
+
+# AR + UI
+googleArcore = { module = "com.google.ar:core",        version.ref = "arcore" }
+androidxAppcompat = { group = "androidx.appcompat",        name = "appcompat",             version.ref = "appcompat" }
+material         = { group = "com.google.android.material", name = "material",  version.ref = "material" }
+sceneviewAr = { group = "io.github.sceneview", name = "sceneview", version.ref = "sceneview" }
+
+cameraCore       = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+cameraCamera2    = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+cameraLifecycle  = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+cameraView       = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+cameraExtensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "camerax" }
+
+#androidOpenCV = { group = "org.openpnp", name = "opencv", version.ref = "openCV" }
+
+[plugins]
+android-application = { id = "com.android.application",               version.ref = "agp" }
+kotlin-android     = { id = "org.jetbrains.kotlin.android",          version.ref = "kotlin" }
+kotlin-compose     = { id = "org.jetbrains.kotlin.plugin.compose",   version.ref = "kotlin" }
