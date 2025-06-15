@@ -25,6 +25,8 @@ class BoxOverlay @JvmOverloads constructor(
         color = 0xffff0000.toInt()
         textSize = 48f
     }
+    /** Reusable rectangle to avoid allocations during drawing. */
+    private val debugRect = RectF()
     private var detections: List<Detection> = emptyList()
 
     fun setDetections(detections: List<Detection>) {
@@ -45,14 +47,14 @@ class BoxOverlay @JvmOverloads constructor(
             )
         }
         if (SHOW_DEBUG_BOX) {
-            val r = RectF(
+            debugRect.set(
                 width * 0.2f,
                 height * 0.2f,
                 width * 0.8f,
                 height * 0.8f,
             )
-            canvas.drawRect(r, boxPaint)
-            canvas.drawText("debug", r.left, r.top - 10, textPaint)
+            canvas.drawRect(debugRect, boxPaint)
+            canvas.drawText("debug", debugRect.left, debugRect.top - 10, textPaint)
         }
     }
 }
