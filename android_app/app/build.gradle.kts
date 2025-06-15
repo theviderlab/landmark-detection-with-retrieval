@@ -57,8 +57,9 @@ dependencies {
     implementation(libs.cameraView)
     implementation(libs.cameraExtensions)
 
-    // OpenCV Android
-    implementation(project(":opencv"))
+
+    // ONNX Runtime
+    implementation(libs.onnxRuntime)
 
     // Version catalog – SceneView (si lo usas después)
     implementation(libs.sceneviewAr)

@@ -16,5 +16,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ARObjectDetector2"
-include(":app", ":opencv")
-project(":opencv").projectDir = file("opencv")
+include(":app")
