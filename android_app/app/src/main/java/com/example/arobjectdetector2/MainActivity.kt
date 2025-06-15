@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.os.Bundle
-import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -108,7 +107,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val metrics = DisplayMetrics().also { windowManager.defaultDisplay.getMetrics(it) }
+        val metrics = resources.displayMetrics
         Log.d(TAG, "📐 Pantalla completa: ${metrics.widthPixels}×${metrics.heightPixels}")
     }
 
@@ -132,7 +131,7 @@ class MainActivity : AppCompatActivity() {
 
             val preview = Preview.Builder()
                 .build()
-                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                .also { it.surfaceProvider = previewView.surfaceProvider }
 
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
