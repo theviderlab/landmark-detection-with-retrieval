@@ -3,14 +3,10 @@ package com.example.arobjectdetector2
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.core.Scalar
-import org.opencv.core.Size
-import org.opencv.core.CvType
-import org.opencv.dnn.Dnn
-import org.opencv.dnn.Net
-import org.opencv.imgproc.Imgproc
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+import android.util.Log
 import kotlin.math.max
 
 /**
@@ -22,9 +18,12 @@ import kotlin.math.max
  */
 class YoloDetector(
     context: Context,
-    private val net: Net,
+    private val session: OrtSession,
     private val labelsAssetFile: String = "labels.txt"
 ) {
+    companion object {
+        private const val TAG = "YoloDetector"
+    }
     private val inputWidth = 640
     private val inputHeight = 640
     // Carga nombres de clase desde assets/labelsAssetFile
@@ -38,68 +37,54 @@ class YoloDetector(
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
-        // 1) Bitmap → Mat (RGBA)
-        val mat = Mat()
-        var blob: Mat? = null
-        val outputs = mutableListOf<Mat>()
-        try {
-            Utils.bitmapToMat(bitmap, mat)
+        // The ONNX model expects a uint8 NCHW tensor (1,3,640,640) in BGR order
+        val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
+        val pixels = IntArray(inputWidth * inputHeight)
+        resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
 
-            // 2) RGBA → BGR
-            Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2BGR)
+        val buffer = java.nio.ByteBuffer.allocateDirect(inputWidth * inputHeight * 3)
+        buffer.order(java.nio.ByteOrder.nativeOrder())
+        for (p in pixels) {
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+            buffer.put(b.toByte())
+            buffer.put(g.toByte())
+            buffer.put(r.toByte())
+        }
+        buffer.rewind()
 
-            // 3) Crear blob manteniendo el tamaño original
-            blob = Dnn.blobFromImage(
-                mat,
-                1.0,
-                Size(inputWidth.toDouble(), inputHeight.toDouble()),
-                Scalar(0.0, 0.0, 0.0),
-                /*swapRB=*/ false,
-                /*crop=*/ false
-            )
+        val env = OrtEnvironment.getEnvironment()
+        val inputName = session.inputNames.iterator().next()
+        OnnxTensor.createTensor(env, buffer,
+            longArrayOf(1L, 3L, inputHeight.toLong(), inputWidth.toLong()),
+            ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
+            session.run(mapOf(inputName to tensor)).use { result ->
+                if (result.size() < 3) return emptyList()
 
-            // especificar nombre de entrada del modelo
-            net.setInput(blob, "image_bgr")
+                val boxes = result[0].value as Array<FloatArray>
+                val scores = result[1].value as FloatArray
+                val classes = result[2].value as LongArray
 
-            // 4) Ejecutar la red
-            net.forward(outputs, net.unconnectedOutLayersNames)
-            if (outputs.size < 3) return emptyList()
+                Log.d(TAG, "ORT outputs -> boxes=${boxes.size} scores=${scores.size}")
 
-            val boxes = outputs[0]
-            val scores = outputs[1]
-            val classes = outputs[2]
-
-            val detections = mutableListOf<Detection>()
-            val wScale = bitmap.width.toFloat() / inputWidth.toFloat()
-            val hScale = bitmap.height.toFloat() / inputHeight.toFloat()
-            val num = boxes.rows()
-            for (i in 0 until num) {
-                val boxArr = FloatArray(4)
-                boxes.get(i, 0, boxArr)
-
-                val scoreArr = FloatArray(1)
-                scores.get(i, 0, scoreArr)
-
-                val clsArr = FloatArray(1)
-                classes.get(i, 0, clsArr)
-
-                detections += Detection(
-                    cls = clsArr[0].toInt(),
-                    score = scoreArr[0],
-                    box = RectF(
-                        boxArr[0] * wScale,
-                        boxArr[1] * hScale,
-                        boxArr[2] * wScale,
-                        boxArr[3] * hScale
+                val detections = mutableListOf<Detection>()
+                for (i in scores.indices) {
+                    val box = boxes[i]
+                    detections += Detection(
+                        cls = classes[i].toInt(),
+                        score = scores[i],
+                        box = RectF(box[0], box[1], box[2], box[3])
                     )
-                )
+                }
+                if (detections.isNotEmpty()) {
+                    val d = detections.first()
+                    Log.d(TAG, "First det -> cls=${d.cls} score=${d.score} box=${d.box}")
+                } else {
+                    Log.d(TAG, "No detections")
+                }
+                return detections
             }
-
-            return detections
-        } finally {
-            mat.release()
-            blob?.release()
-            outputs.forEach { it.release() }
         }
     }
 
