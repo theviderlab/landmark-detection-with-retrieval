@@ -207,12 +207,27 @@ class MainActivity : AppCompatActivity() {
         vBuffer.get(nv21, ySize, vSize)
         uBuffer.get(nv21, ySize + vSize, uSize)
 
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21,
-            image.width, image.height, null)
+        val yuvImage = YuvImage(
+            nv21,
+            ImageFormat.NV21,
+            image.width,
+            image.height,
+            null
+        )
         val out = ByteArrayOutputStream()
         yuvImage.compressToJpeg(
-            Rect(0, 0, image.width, image.height), 90, out)
-        return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
+            Rect(0, 0, image.width, image.height),
+            90,
+            out
+        )
+        val bmp = BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
+        val rot = image.imageInfo.rotationDegrees
+        return if (rot != 0) {
+            val m = Matrix().apply { postRotate(rot.toFloat()) }
+            Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        } else {
+            bmp
+        }
     }
 
     private inner class YoloAnalyzer : ImageAnalysis.Analyzer {
