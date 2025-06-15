@@ -37,7 +37,7 @@ class YoloDetector(
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
-        // The ONNX model expects a uint8 NCHW tensor (3,640,640) in BGR order
+        // The ONNX model expects a uint8 HWC tensor (640,640,3) in BGR order
         val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
         val pixels = IntArray(inputWidth * inputHeight)
         resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
@@ -56,9 +56,9 @@ class YoloDetector(
 
         val env = OrtEnvironment.getEnvironment()
         val inputName = session.inputNames.iterator().next()
-        Log.d(TAG, "Using input '$inputName' -> shape (3, $inputHeight, $inputWidth)")
+        Log.d(TAG, "Using input '$inputName' -> shape ($inputHeight, $inputWidth, 3)")
         OnnxTensor.createTensor(env, buffer,
-            longArrayOf(3L, inputHeight.toLong(), inputWidth.toLong()),
+            longArrayOf(inputHeight.toLong(), inputWidth.toLong(), 3L),
             ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 if (result.size() < 3) return emptyList()
