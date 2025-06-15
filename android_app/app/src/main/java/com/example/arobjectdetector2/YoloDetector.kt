@@ -24,8 +24,6 @@ class YoloDetector(
     companion object {
         private const val TAG = "YoloDetector"
     }
-    private val inputWidth = 640
-    private val inputHeight = 640
     // Carga nombres de clase desde assets/labelsAssetFile
     private val classNames: List<String> = context.assets.open(labelsAssetFile)
         .bufferedReader()
@@ -37,12 +35,13 @@ class YoloDetector(
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
-        // The ONNX model expects a uint8 HWC tensor (640,640,3) in BGR order
-        val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
-        val pixels = IntArray(inputWidth * inputHeight)
-        resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
+        // The ONNX model expects a uint8 HWC tensor (H,W,3) in BGR order
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        val buffer = java.nio.ByteBuffer.allocateDirect(inputWidth * inputHeight * 3)
+        val buffer = java.nio.ByteBuffer.allocateDirect(width * height * 3)
         buffer.order(java.nio.ByteOrder.nativeOrder())
         for (p in pixels) {
             val r = (p shr 16) and 0xFF
@@ -56,9 +55,9 @@ class YoloDetector(
 
         val env = OrtEnvironment.getEnvironment()
         val inputName = session.inputNames.iterator().next()
-        Log.d(TAG, "Using input '$inputName' -> shape ($inputHeight, $inputWidth, 3)")
+        Log.d(TAG, "Using input '$inputName' -> shape ($height, $width, 3)")
         OnnxTensor.createTensor(env, buffer,
-            longArrayOf(inputHeight.toLong(), inputWidth.toLong(), 3L),
+            longArrayOf(height.toLong(), width.toLong(), 3L),
             ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 if (result.size() < 3) return emptyList()
