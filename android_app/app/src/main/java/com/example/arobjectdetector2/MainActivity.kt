@@ -177,6 +177,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }.start()
+    }
 
     override fun onResume() {
         super.onResume()
