@@ -81,8 +81,12 @@ class YoloDetector(
                     )
                 }
                 if (detections.isNotEmpty()) {
-                    val d = detections.first()
-                    Log.d(TAG, "First det -> cls=${d.cls} score=${d.score} box=${d.box}")
+                    detections.forEachIndexed { idx, det ->
+                        Log.d(
+                            TAG,
+                            "Det $idx -> cls=${det.cls} score=${det.score} box=${det.box}"
+                        )
+                    }
                 } else {
                     Log.d(TAG, "No detections")
                 }
