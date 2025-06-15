@@ -34,7 +34,7 @@ class YoloDetector(
      * El modelo ONNX ya incluye todo el pre y postprocesado, por lo
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
-    fun detect(bitmap: Bitmap): List<Detection> {
+    private fun detect(bitmap: Bitmap): List<Detection> {
         // The ONNX model expects a uint8 HWC tensor (H,W,3) in BGR order
         val width = bitmap.width
         val height = bitmap.height
@@ -62,8 +62,11 @@ class YoloDetector(
             session.run(mapOf(inputName to tensor)).use { result ->
                 if (result.size() < 3) return emptyList()
 
+                @Suppress("UNCHECKED_CAST")
                 val boxes = result[0].value as Array<FloatArray>
+                @Suppress("UNCHECKED_CAST")
                 val scores = result[1].value as FloatArray
+                @Suppress("UNCHECKED_CAST")
                 val classes = result[2].value as LongArray
 
                 Log.d(TAG, "ORT outputs -> boxes=${boxes.size} scores=${scores.size}")
@@ -129,5 +132,5 @@ class YoloDetector(
     /**
      * Obtiene el nombre de clase a partir del índice, o el índice si no existe.
      */
-    fun getClassName(idx: Int): String = classNames.getOrNull(idx) ?: idx.toString()
+    private fun getClassName(idx: Int): String = classNames.getOrNull(idx) ?: idx.toString()
 }
