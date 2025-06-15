@@ -15,6 +15,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.view.WindowManager
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -93,12 +94,16 @@ class MainActivity : AppCompatActivity() {
             // espera a que previewView (y overlay) tengan width/height válidos
             detector?.let { det ->
                 staticBitmap?.let { bmp ->
-                    val viewDets = det.detectOnView(
-                        bmp,
-                        previewView.width,
-                        previewView.height
-                    )
-                    overlay.setDetections(viewDets)
+                    val vw = if (USE_STATIC_FRAME) overlay.width else previewView.width
+                    val vh = if (USE_STATIC_FRAME) overlay.height else previewView.height
+                    if (vw > 0 && vh > 0) {
+                        val viewDets = det.detectOnView(
+                            bmp,
+                            vw,
+                            vh
+                        )
+                        overlay.setDetections(viewDets)
+                    }
                 }
             }
         }
@@ -172,8 +177,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }.start()
-}
 
+    override fun onResume() {
+        super.onResume()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
@@ -225,7 +238,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
 
-                val viewDetections = det.detectOnView(bmp, previewView.width, previewView.height)
+                val vw = if (USE_STATIC_FRAME) overlay.width else previewView.width
+                val vh = if (USE_STATIC_FRAME) overlay.height else previewView.height
+                val viewDetections = det.detectOnView(bmp, vw, vh)
                 Log.d(TAG, "Detections on view: ${viewDetections.size}")
 
                 runOnUiThread {
