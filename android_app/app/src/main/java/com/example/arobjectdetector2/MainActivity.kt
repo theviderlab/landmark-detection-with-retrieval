@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val CAMERA_PERMISSION_REQUEST = 1
-        private const val USE_STATIC_FRAME = true
+        private const val USE_STATIC_FRAME = false
 
     }
 
