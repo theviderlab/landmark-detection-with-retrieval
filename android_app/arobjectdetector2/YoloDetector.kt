@@ -37,12 +37,13 @@ class YoloDetector(
      * que simplemente convertimos el bitmap a BGR y ejecutamos `forward`.
      */
     fun detect(bitmap: Bitmap): List<Detection> {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        // The ONNX model expects a uint8 NCHW tensor (1,3,640,640) in BGR order
+        val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
+        val pixels = IntArray(inputWidth * inputHeight)
+        resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
 
-        val buffer = java.nio.ByteBuffer.allocateDirect(width * height * 3)
+        val buffer = java.nio.ByteBuffer.allocateDirect(inputWidth * inputHeight * 3)
+        buffer.order(java.nio.ByteOrder.nativeOrder())
         for (p in pixels) {
             val r = (p shr 16) and 0xFF
             val g = (p shr 8) and 0xFF
@@ -55,7 +56,9 @@ class YoloDetector(
 
         val env = OrtEnvironment.getEnvironment()
         val inputName = session.inputNames.iterator().next()
-        OnnxTensor.createTensor(env, buffer, longArrayOf(height.toLong(), width.toLong(), 3)).use { tensor ->
+        OnnxTensor.createTensor(env, buffer,
+            longArrayOf(1L, 3L, inputHeight.toLong(), inputWidth.toLong()),
+            ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 if (result.size() < 3) return emptyList()
 
