@@ -205,10 +205,6 @@ class Pipeline_Yolo_CVNet_SG():
 
         return results
 
-
-
-
-
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
         paths = detector.export(
@@ -523,7 +519,7 @@ class Pipeline_Yolo_CVNet_SG():
             results = [r for r in results]
         return results
 
-class Similarity_Search:
+class Similarity_Search():
     """Realiza búsqueda de similitud y votación por mayoría para cada detección."""
 
     def __init__(self, topk: int = 5, min_sim: float = 0.8) -> None:
