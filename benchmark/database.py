@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from landmark_detection.pipeline import Pipeline_Yolo_CVNet_SG
+from landmark_detection.pipeline import Pipeline_Yolo_CVNet_SG, Similarity_Search
+import torch
 
 def build_image_database(
     pipeline: Pipeline_Yolo_CVNet_SG,
@@ -19,6 +20,8 @@ def build_image_database(
     descriptor_pickle_path: str,
     force_rebuild: bool = False,
     save_every: int = 500,
+    min_area: float = 0.0,
+    min_sim: float = 0.0,
 ) -> Tuple[pd.DataFrame, np.ndarray]:
     """Construye o actualiza una base de datos de detecciones y descriptores.
 
@@ -36,6 +39,10 @@ def build_image_database(
         Si es True, se ignoran los archivos previos y se procesan todas las imágenes.
     save_every : int, optional
         Número de imágenes procesadas tras el cual se actualizan los pickles.
+    min_area : float, optional
+        Área mínima relativa de una ``bbox`` para conservarla. Valor entre 0 y 1.
+    min_sim : float, optional
+        Similitud mínima para agrupar ``bboxes`` de una misma imagen.
 
     Returns
     -------
@@ -93,6 +100,58 @@ def build_image_database(
         scores_np = final_scores.numpy() if hasattr(final_scores, "numpy") else np.asarray(final_scores)
         classes_np = final_classes.numpy() if hasattr(final_classes, "numpy") else np.asarray(final_classes)
         descriptors_np = descriptors.numpy() if hasattr(descriptors, "numpy") else np.asarray(descriptors)
+
+        # Filtrar por área mínima utilizando la bbox que cubre la imagen completa
+        if min_area > 0:
+            mask_full = classes_np == -1
+            if not np.any(mask_full):
+                print(f"No se encontró bbox de imagen completa en {img_name}")
+                img_area = None
+            else:
+                full_box = boxes_np[mask_full][0]
+                img_area = float((full_box[2] - full_box[0]) * (full_box[3] - full_box[1]))
+            if img_area is not None and img_area > 0:
+                areas = (boxes_np[:, 2] - boxes_np[:, 0]) * (boxes_np[:, 3] - boxes_np[:, 1])
+                mask = areas / img_area >= min_area
+                boxes_np = boxes_np[mask]
+                scores_np = scores_np[mask]
+                classes_np = classes_np[mask]
+                descriptors_np = descriptors_np[mask]
+
+        # Filtrar por similitud mínima entre cajas de la misma imagen
+        if min_sim > 0 and len(descriptors_np) > 0:
+            desc_t = torch.as_tensor(descriptors_np)
+            searcher = Similarity_Search(topk=len(desc_t), min_sim=min_sim)
+            _, top_sims, top_idx = searcher(desc_t, desc_t, torch.arange(len(desc_t)))
+            full_sims = torch.zeros((len(desc_t), len(desc_t)), dtype=top_sims.dtype)
+            for i in range(len(desc_t)):
+                full_sims[i, top_idx[i]] = top_sims[i]
+            adj = (full_sims >= min_sim).numpy()
+            visited = np.zeros(len(desc_t), dtype=bool)
+            best_group: list[int] = []
+            for i in range(len(desc_t)):
+                if not visited[i]:
+                    queue = [i]
+                    visited[i] = True
+                    group: list[int] = []
+                    while queue:
+                        v = queue.pop(0)
+                        group.append(v)
+                        neighbors = np.where(adj[v])[0]
+                        for n in neighbors:
+                            if not visited[n]:
+                                visited[n] = True
+                                queue.append(n)
+                    if len(group) > len(best_group):
+                        best_group = group
+            keep_idx = np.array(sorted(best_group), dtype=int)
+            boxes_np = boxes_np[keep_idx]
+            scores_np = scores_np[keep_idx]
+            classes_np = classes_np[keep_idx]
+            descriptors_np = descriptors_np[keep_idx]
+
+        if boxes_np.shape[0] == 0:
+            continue
 
         if init_C:
             C = descriptors_np.shape[1]
