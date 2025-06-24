@@ -1,6 +1,8 @@
-import matplotlib.pyplot as plt
+import os
 import cv2
 import yaml
+import numpy as np
+import matplotlib.pyplot as plt
 
 def show_image(img_path):   
     # Carga de imagen
@@ -123,3 +125,73 @@ def load_names_from_yaml(file_path):
     # Construir la lista de valores
     names_list = [value for _, value in sorted_items]
     return names_list
+
+
+def show_similarity_search(
+    results,
+    top_sims,
+    top_idx,
+    df_result,
+    landmark_tensor,
+    query_outputs,
+    query_img_path,
+    image_folder,
+    top_n: int = 5,
+):
+    """Visualiza los resultados de :class:`Similarity_Search`.
+
+    Cada fila muestra el recorte de la caja de la consulta seguido de los
+    ``top_n`` recortes recuperados de la base de datos. Debe pasarse la
+    carpeta donde se encuentran las imágenes de la base de datos ya que en
+    ``df_result`` solo se almacena el nombre del archivo.
+    """
+
+    if not len(query_outputs):
+        raise ValueError("query_outputs debe ser la salida de pipeline.run")
+
+    final_boxes = query_outputs[0]
+    if hasattr(final_boxes, "numpy"):
+        final_boxes = final_boxes.numpy()
+
+    q_img_bgr = cv2.imread(query_img_path)
+    if q_img_bgr is None:
+        raise FileNotFoundError(f"No se encontró la imagen en {query_img_path}")
+    q_img_rgb = cv2.cvtColor(q_img_bgr, cv2.COLOR_BGR2RGB)
+
+    n_queries = final_boxes.shape[0]
+    top_n = min(top_n, top_idx.shape[1])
+
+    fig, axes = plt.subplots(n_queries, top_n + 1, figsize=(3 * (top_n + 1), 3 * n_queries))
+    axes = np.atleast_2d(axes)
+
+    for row in range(n_queries):
+        x1, y1, x2, y2 = map(int, final_boxes[row])
+        crop_q = q_img_rgb[y1:y2, x1:x2]
+        axes[row, 0].imshow(crop_q)
+        label = results[row] if row < len(results) else None
+        axes[row, 0].set_title(f"Q{row}→{label}")
+        axes[row, 0].axis("off")
+
+        for col in range(top_n):
+            db_id = int(top_idx[row, col])
+            sim = float(top_sims[row, col])
+            img_name = df_result.loc[db_id, "image_name"]
+            bbox = df_result.loc[db_id, "bbox"]
+            img_path = os.path.join(image_folder, img_name)
+            db_img = cv2.imread(img_path)
+            if db_img is None:
+                raise FileNotFoundError(f"No se encontró la imagen en {img_path}")
+            db_img = cv2.cvtColor(db_img, cv2.COLOR_BGR2RGB)
+            x1d, y1d, x2d, y2d = map(int, bbox)
+            crop_db = db_img[y1d:y2d, x1d:x2d]
+            cls = int(landmark_tensor[db_id]) if landmark_tensor is not None else -1
+            ax = axes[row, col + 1]
+            ax.imshow(crop_db)
+            ax.set_title(f"{cls} ({sim:.2f})")
+            ax.axis("off")
+
+        for col in range(top_n, axes.shape[1] - 1):
+            axes[row, col + 1].axis("off")
+
+    plt.tight_layout()
+    plt.show()
