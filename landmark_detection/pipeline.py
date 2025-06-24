@@ -518,3 +518,64 @@ class Pipeline_Yolo_CVNet_SG():
             ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
             results = [r for r in results]
         return results
+
+class Similarity_Search():
+    """Realiza búsqueda de similitud y votación por mayoría para cada detección."""
+
+    def __init__(self, topk: int = 5, min_sim: float = 0.8) -> None:
+        """Inicializa el buscador.
+
+        Parameters
+        ----------
+        topk : int
+            Número máximo de vecinos a considerar.
+        min_sim : float
+            Similitud mínima para aceptar un vecino.
+        """
+
+        self.topk = topk
+        self.min_sim = min_sim
+
+    def __call__(self, Q: torch.Tensor, X: torch.Tensor, idx: torch.Tensor) -> list:
+        """Obtiene los índices de lugar por votación de mayoría.
+
+        Parameters
+        ----------
+        Q : torch.Tensor
+            Descriptores de consulta normalizados con shape ``(D, C)``.
+        X : torch.Tensor
+            Descriptores de la base de datos con shape ``(N, C)``.
+        idx : torch.Tensor
+            Índice de lugar asociado a cada fila de ``X`` con shape ``(N,)``.
+
+        Returns
+        -------
+        list[int | None]
+            Vector con el índice de lugar para cada consulta o ``None`` si no se
+            supera ``min_sim``.
+        """
+
+        if Q.ndim != 2:
+            raise ValueError("Q debe tener shape (D, C)")
+        if X.ndim != 2:
+            raise ValueError("X debe tener shape (N, C)")
+        if X.shape[0] != len(idx):
+            raise ValueError("idx debe tener la misma longitud que X")
+        if Q.shape[1] != X.shape[1]:
+            raise ValueError("Dimensión C de Q y X debe coincidir")
+
+        sims = torch.matmul(Q, X.T)  # (D, N)
+        top_sims, top_idx = torch.topk(sims, self.topk, dim=1)
+
+        results: list[int | None] = []
+        for sim_row, idx_row in zip(top_sims, top_idx):
+            mask = sim_row >= self.min_sim
+            if not torch.any(mask):
+                results.append(None)
+                continue
+            places = idx[idx_row[mask]]
+            unique_ids, counts = torch.unique(places, return_counts=True)
+            majority = unique_ids[counts.argmax()]
+            results.append(int(majority.item()))
+
+        return results, top_sims, top_idx
