@@ -36,7 +36,8 @@ class Pipeline_Yolo_CVNet_SG():
         gem_p: float     = 4.6,
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
-        eps: float       = 1e-8
+        eps: float       = 1e-8,
+        remove_inner_boxes: bool = False
     ):
         self.image_dim = image_dim
         self.orig_size = orig_size
@@ -86,7 +87,8 @@ class Pipeline_Yolo_CVNet_SG():
             gem_p = gem_p,
             sgem_ps = sgem_ps,
             sgem_infinity = sgem_infinity,
-            eps = eps
+            eps = eps,
+            remove_inner_boxes = remove_inner_boxes
         ).eval()
 
         # Obtener el directorio donde está este archivo Python (el módulo)
@@ -150,6 +152,7 @@ class Pipeline_Yolo_CVNet_SG():
         self.sgem_ps = sgem_ps
         self.sgem_infinity = sgem_infinity
         self.eps = eps
+        self.remove_inner_boxes = remove_inner_boxes
 
     def detect(self, image):
 
