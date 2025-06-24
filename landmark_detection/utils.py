@@ -41,7 +41,9 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
     for i in range(len(boxes)):
         x1, y1, x2, y2 = boxes[i]
         idx = cls[i]
-        if idx == -1:
+        if idx is None:
+            class_name = "None"
+        elif idx == -1:
             class_name = "full image"
         else:
             class_name = class_names[idx]
@@ -80,7 +82,9 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
             fill=False, linewidth=2, edgecolor='red'
         )
         ax.add_patch(rect)
-        if cls_idx == -1:
+        if cls_idx is None:
+            class_name = "None"
+        elif cls_idx == -1:
             class_name = "full image"
         else:
             class_name = class_names[cls_idx]
