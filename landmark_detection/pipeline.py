@@ -522,7 +522,7 @@ class Pipeline_Yolo_CVNet_SG():
 class Similarity_Search():
     """Realiza búsqueda de similitud y votación por mayoría para cada detección."""
 
-    def __init__(self, topk: int = 5, min_sim: float = 0.8) -> None:
+    def __init__(self, topk: int = 5, min_sim: float = 0.8, min_votes: float = 0.0) -> None:
         """Inicializa el buscador.
 
         Parameters
@@ -531,10 +531,16 @@ class Similarity_Search():
             Número máximo de vecinos a considerar.
         min_sim : float
             Similitud mínima para aceptar un vecino.
+        min_votes : float, optional
+            Porcentaje mínimo de votos necesarios para asignar una clase.
         """
+
+        if not 0.0 <= min_votes <= 1.0:
+            raise ValueError("min_votes debe estar entre 0 y 1")
 
         self.topk = topk
         self.min_sim = min_sim
+        self.min_votes = min_votes
 
     def __call__(self, Q: torch.Tensor, X: torch.Tensor, idx: torch.Tensor) -> list:
         """Obtiene los índices de lugar por votación de mayoría.
@@ -552,7 +558,7 @@ class Similarity_Search():
         -------
         list[int | None]
             Vector con el índice de lugar para cada consulta o ``None`` si no se
-            supera ``min_sim``.
+            superan ``min_sim`` o ``min_votes``.
         """
 
         if Q.ndim != 2:
@@ -575,7 +581,12 @@ class Similarity_Search():
                 continue
             places = idx[idx_row[mask]]
             unique_ids, counts = torch.unique(places, return_counts=True)
-            majority = unique_ids[counts.argmax()]
+            majority_index = counts.argmax()
+            majority = unique_ids[majority_index]
+            vote_ratio = counts[majority_index].float() / mask.sum().float()
+            if vote_ratio < self.min_votes:
+                results.append(None)
+                continue
             results.append(int(majority.item()))
 
         return results, top_sims, top_idx
