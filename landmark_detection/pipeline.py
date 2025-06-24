@@ -578,4 +578,4 @@ class Similarity_Search():
             majority = unique_ids[counts.argmax()]
             results.append(int(majority.item()))
 
-        return results
+        return results, top_sims, top_idx
