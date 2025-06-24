@@ -140,10 +140,31 @@ def show_similarity_search(
 ):
     """Visualiza los resultados de :class:`Similarity_Search`.
 
-    Cada fila muestra el recorte de la caja de la consulta seguido de los
-    ``top_n`` recortes recuperados de la base de datos. Debe pasarse la
-    carpeta donde se encuentran las imágenes de la base de datos ya que en
-    ``df_result`` solo se almacena el nombre del archivo.
+    Parameters
+    ----------
+    results : Sequence[int | None]
+        Lista con el ``landmark`` asignado a cada detección de la consulta
+        o ``None`` si la similitud mínima no se superó.
+    top_sims : numpy.ndarray | torch.Tensor
+        Matriz ``(D, K)`` con las similitudes de los ``K`` vecinos más
+        cercanos para cada una de las ``D`` detecciones de la consulta.
+    top_idx : numpy.ndarray | torch.Tensor
+        Índices de ``df_result`` correspondientes a ``top_sims``.
+    df_result : pandas.DataFrame
+        Salida de :func:`benchmark.database.build_image_database` con la
+        información de las detecciones de la base de datos.
+    landmark_tensor : Sequence[int]
+        Clase ``class_id`` asociada a cada fila de ``df_result``.
+    query_outputs : list
+        Resultado de :meth:`Pipeline_Yolo_CVNet_SG.run` utilizado para
+        obtener las cajas de la imagen de consulta.
+    query_img_path : str
+        Ruta de la imagen de consulta.
+    image_folder : str
+        Carpeta donde se encuentran las imágenes referenciadas en
+        ``df_result``.
+    top_n : int, optional
+        Número máximo de vecinos a visualizar por detección.
     """
 
     if not len(query_outputs):
