@@ -226,8 +226,8 @@ class CVNet_SG(nn.Module):
             y2_j = boxes_filt[:, 3].unsqueeze(0)
 
             contains = (x1 <= x1_j) & (y1 <= y1_j) & (x2 >= x2_j) & (y2 >= y2_j)
-            eye = torch.eye(contains.size(0), dtype=torch.bool, device=contains.device)
-            contains = contains & ~eye
+            diag_idx = torch.arange(contains.size(0), device=contains.device)
+            contains[diag_idx, diag_idx] = False
 
             class_eq = classes_filt.unsqueeze(1) == classes_filt.unsqueeze(0)
             areas = (boxes_filt[:, 2] - boxes_filt[:, 0]) * (boxes_filt[:, 3] - boxes_filt[:, 1])
