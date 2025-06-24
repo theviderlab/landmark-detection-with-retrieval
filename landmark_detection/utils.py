@@ -133,7 +133,7 @@ def show_similarity_search(
     top_idx,
     df_result,
     landmark_tensor,
-    query_outputs,
+    final_boxes,
     query_img_path,
     image_folder,
     top_n: int = 5,
@@ -155,7 +155,7 @@ def show_similarity_search(
         información de las detecciones de la base de datos.
     landmark_tensor : Sequence[int]
         Clase ``class_id`` asociada a cada fila de ``df_result``.
-    query_outputs : list
+    final_boxes : list
         Resultado de :meth:`Pipeline_Yolo_CVNet_SG.run` utilizado para
         obtener las cajas de la imagen de consulta.
     query_img_path : str
@@ -167,12 +167,7 @@ def show_similarity_search(
         Número máximo de vecinos a visualizar por detección.
     """
 
-    if not len(query_outputs):
-        raise ValueError("query_outputs debe ser la salida de pipeline.run")
-
-    final_boxes = query_outputs[0]
-    if hasattr(final_boxes, "numpy"):
-        final_boxes = final_boxes.numpy()
+    final_boxes = np.array(final_boxes)
 
     q_img_bgr = cv2.imread(query_img_path)
     if q_img_bgr is None:
