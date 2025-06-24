@@ -77,6 +77,9 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
     # Dibujar cajas predichas en rojo
     i = 0
     for (x1, y1, x2, y2), cls_idx, sc in zip(boxes, cls, scores):
+        if cls_idx is None:
+            continue
+
         rect = plt.Rectangle(
             (x1, y1),
             x2 - x1,
@@ -84,9 +87,7 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
             fill=False, linewidth=2, edgecolor='red'
         )
         ax.add_patch(rect)
-        if cls_idx is None:
-            class_name = "None"
-        elif cls_idx == -1:
+        if cls_idx == -1:
             class_name = "full image"
         else:
             class_name = class_names[cls_idx]
