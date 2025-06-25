@@ -37,7 +37,7 @@ class Pipeline_Yolo_CVNet_SG():
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
         eps: float       = 1e-8,
-        remove_inner_boxes: bool = False
+        remove_inner_boxes: float | None = None
     ):
         self.image_dim = image_dim
         self.orig_size = orig_size
