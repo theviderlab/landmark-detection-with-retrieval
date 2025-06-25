@@ -7,6 +7,7 @@ from ultralytics import YOLO
 import os
 import cv2
 from typing import List
+import numpy as np
 import json
 
 import onnxruntime as ort
@@ -36,8 +37,7 @@ class Pipeline_Yolo_CVNet_SG():
         gem_p: float     = 4.6,
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
-        eps: float       = 1e-8,
-        remove_inner_boxes: float | None = None
+        eps: float       = 1e-8
     ):
         self.image_dim = image_dim
         self.orig_size = orig_size
@@ -87,8 +87,7 @@ class Pipeline_Yolo_CVNet_SG():
             gem_p = gem_p,
             sgem_ps = sgem_ps,
             sgem_infinity = sgem_infinity,
-            eps = eps,
-            remove_inner_boxes = remove_inner_boxes
+            eps = eps
         ).eval()
 
         # Obtener el directorio donde está este archivo Python (el módulo)
@@ -152,7 +151,6 @@ class Pipeline_Yolo_CVNet_SG():
         self.sgem_ps = sgem_ps
         self.sgem_infinity = sgem_infinity
         self.eps = eps
-        self.remove_inner_boxes = remove_inner_boxes
 
     def detect(self, image):
 
@@ -525,7 +523,13 @@ class Pipeline_Yolo_CVNet_SG():
 class Similarity_Search():
     """Realiza búsqueda de similitud y votación por mayoría para cada detección."""
 
-    def __init__(self, topk: int = 5, min_sim: float = 0.8, min_votes: float = 0.0) -> None:
+    def __init__(
+        self,
+        topk: int = 5,
+        min_sim: float = 0.8,
+        min_votes: float = 0.0,
+        remove_inner_boxes: float | None = None,
+    ) -> None:
         """Inicializa el buscador.
 
         Parameters
@@ -536,6 +540,10 @@ class Similarity_Search():
             Similitud mínima para aceptar un vecino.
         min_votes : float, optional
             Porcentaje mínimo de votos necesarios para asignar una clase.
+        remove_inner_boxes : float, optional
+            Umbral para descartar cajas más grandes que se solapan con otras
+            más pequeñas del mismo ``landmark``. Si ``None`` no se aplica
+            este filtrado.
         """
 
         if not 0.0 <= min_votes <= 1.0:
@@ -544,8 +552,15 @@ class Similarity_Search():
         self.topk = topk
         self.min_sim = min_sim
         self.min_votes = min_votes
+        self.remove_inner_boxes = remove_inner_boxes
 
-    def __call__(self, Q: torch.Tensor, X: torch.Tensor, idx: torch.Tensor) -> list:
+    def __call__(
+        self,
+        Q: torch.Tensor,
+        X: torch.Tensor,
+        idx: torch.Tensor,
+        boxes: torch.Tensor | None = None,
+    ) -> list:
         """Obtiene los índices de lugar por votación de mayoría.
 
         Parameters
@@ -592,4 +607,46 @@ class Similarity_Search():
                 continue
             results.append(int(majority.item()))
 
+        if self.remove_inner_boxes is not None and boxes is not None and len(results) > 1:
+            results = self._remove_overlapping_boxes(boxes, results, self.remove_inner_boxes)
+
         return results, top_sims, top_idx
+
+    def _remove_overlapping_boxes(
+        self,
+        boxes: torch.Tensor,
+        labels: list[int | None],
+        thr: float,
+    ) -> list[int | None]:
+        """Descarta las cajas grandes cuando se solapan demasiado con otras
+        más pequeñas del mismo ``landmark``.
+
+        El solape se calcula como ``intersección / área_menor``.
+        """
+
+        b = boxes.detach().cpu().numpy()
+        areas = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+        new_labels = list(labels)
+        n = len(labels)
+        for i in range(n):
+            if new_labels[i] is None:
+                continue
+            for j in range(i + 1, n):
+                if new_labels[j] is None or new_labels[i] != new_labels[j]:
+                    continue
+                x1 = max(b[i, 0], b[j, 0])
+                y1 = max(b[i, 1], b[j, 1])
+                x2 = min(b[i, 2], b[j, 2])
+                y2 = min(b[i, 3], b[j, 3])
+                w = max(0.0, x2 - x1)
+                h = max(0.0, y2 - y1)
+                inter = w * h
+                if inter == 0:
+                    continue
+                if areas[i] > areas[j]:
+                    bigger, smaller = i, j
+                else:
+                    bigger, smaller = j, i
+                if inter / areas[smaller] >= thr:
+                    new_labels[bigger] = None
+        return new_labels
