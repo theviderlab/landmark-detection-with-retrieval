@@ -47,9 +47,10 @@ class CVNet_SG(nn.Module):
           iou_thresh:       umbral de IoU para la NMS.
           scales:           lista de factores de escala para generar versiones ampliadas/reducidas de cada caja.
                             Por defecto [0.7071, 1.0, 1.4142].
-        remove_inner_boxes: umbral de solape basado en IoU. Si una caja grande
-            comparte con otra más pequeña de la misma clase una intersección
-            sobre unión (IoU) mayor o igual que este valor, la caja grande se
+        remove_inner_boxes: umbral de solape que compara la intersección con el
+            área de la caja más pequeña. Si una caja grande comparte con otra
+            más pequeña de la misma clase una intersección dividida por el área
+            de la menor mayor o igual que este valor, la caja grande se
             eliminará. Si es ``None`` no se eliminan cajas.
         """
         super(CVNet_SG, self).__init__()
@@ -230,8 +231,9 @@ class CVNet_SG(nn.Module):
         classes: torch.Tensor,
         thr: float,
     ):
-        """Elimina las cajas grandes cuyo IoU con otra caja más pequeña de la misma
-        clase sea mayor o igual que ``thr``."""
+        """Elimina las cajas grandes cuando el solape con otra caja más pequeña de
+        la misma clase (intersección dividida por el área de la menor) alcanza
+        o supera ``thr``."""
 
         # Extraemos las coordenadas individuales (x1, y1, x2, y2)
         x1 = boxes[:, 0]
@@ -263,20 +265,20 @@ class CVNet_SG(nn.Module):
         inter_h = (inter_y2 - inter_y1).clamp(min=0)
         inter_area = inter_w * inter_h
 
-        # Áreas de cada par y su unión para obtener el IoU
+        # Áreas de cada par y ratio de intersección sobre el área más pequeña
         areas_i = areas.unsqueeze(1)
         areas_j = areas.unsqueeze(0)
-        union = areas_i + areas_j - inter_area
-        iou = inter_area / (union + 1e-8)
+        smaller = torch.minimum(areas_i, areas_j)
+        overlap = inter_area / (smaller + 1e-8)
 
-        # Evitamos comparar cada caja consigo misma (IoU = 0 en la diagonal)
+        # Evitamos comparar cada caja consigo misma (ratio = 0 en la diagonal)
         idx = torch.arange(boxes.size(0), device=boxes.device)
-        iou[idx, idx] = 0.0
+        overlap[idx, idx] = 0.0
 
         # Sólo consideramos pares de la misma clase donde la caja i es más grande que la j
         class_eq = classes.unsqueeze(1) == classes.unsqueeze(0)
         bigger = areas_i > areas_j
-        discard = (iou >= thr) & class_eq & bigger
+        discard = (overlap >= thr) & class_eq & bigger
 
         # Mantener las cajas que no se descarten por solape con otras menores
         keep = ~discard.any(dim=1)
