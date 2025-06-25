@@ -121,12 +121,8 @@ def build_image_database(
         # Filtrar por similitud mínima entre cajas de la misma imagen
         if min_sim > 0 and len(descriptors_np) > 0:
             desc_t = torch.as_tensor(descriptors_np)
-            searcher = Similarity_Search(topk=len(desc_t), min_sim=min_sim, min_votes=0.0)
-            _, top_sims, top_idx = searcher(desc_t, desc_t, torch.arange(len(desc_t)))
-            full_sims = torch.zeros((len(desc_t), len(desc_t)), dtype=top_sims.dtype)
-            for i in range(len(desc_t)):
-                full_sims[i, top_idx[i]] = top_sims[i]
-            adj = (full_sims >= min_sim).numpy()
+            sims = torch.matmul(desc_t, desc_t.T)
+            adj = (sims >= min_sim).numpy()
             visited = np.zeros(len(desc_t), dtype=bool)
             best_group: list[int] = []
             for i in range(len(desc_t)):
