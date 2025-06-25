@@ -232,13 +232,17 @@ class CVNet_SG(nn.Module):
     ):
         """Elimina las cajas grandes cuyo IoU con otra caja más pequeña de la misma
         clase sea mayor o igual que ``thr``."""
+
+        # Extraemos las coordenadas individuales (x1, y1, x2, y2)
         x1 = boxes[:, 0]
         y1 = boxes[:, 1]
         x2 = boxes[:, 2]
         y2 = boxes[:, 3]
 
+        # Área de cada caja para poder comparar tamaños
         areas = (x2 - x1) * (y2 - y1)
 
+        # Expandir las coordenadas para el cálculo por pares de la intersección
         x1_i = x1.unsqueeze(1)
         y1_i = y1.unsqueeze(1)
         x2_i = x2.unsqueeze(1)
@@ -248,26 +252,33 @@ class CVNet_SG(nn.Module):
         x2_j = x2.unsqueeze(0)
         y2_j = y2.unsqueeze(0)
 
+        # Coordenadas de la región de solape entre cada par de cajas
         inter_x1 = torch.maximum(x1_i, x1_j)
         inter_y1 = torch.maximum(y1_i, y1_j)
         inter_x2 = torch.minimum(x2_i, x2_j)
         inter_y2 = torch.minimum(y2_i, y2_j)
 
+        # Anchura y altura de la intersección (clamp a cero para evitar valores negativos)
         inter_w = (inter_x2 - inter_x1).clamp(min=0)
         inter_h = (inter_y2 - inter_y1).clamp(min=0)
         inter_area = inter_w * inter_h
 
+        # Áreas de cada par y su unión para obtener el IoU
         areas_i = areas.unsqueeze(1)
         areas_j = areas.unsqueeze(0)
         union = areas_i + areas_j - inter_area
         iou = inter_area / (union + 1e-8)
 
+        # Evitamos comparar cada caja consigo misma (IoU = 0 en la diagonal)
         idx = torch.arange(boxes.size(0), device=boxes.device)
         iou[idx, idx] = 0.0
 
+        # Sólo consideramos pares de la misma clase donde la caja i es más grande que la j
         class_eq = classes.unsqueeze(1) == classes.unsqueeze(0)
         bigger = areas_i > areas_j
         discard = (iou >= thr) & class_eq & bigger
+
+        # Mantener las cajas que no se descarten por solape con otras menores
         keep = ~discard.any(dim=1)
 
         return boxes[keep], scores[keep], classes[keep]
