@@ -47,11 +47,10 @@ class CVNet_SG(nn.Module):
           iou_thresh:       umbral de IoU para la NMS.
           scales:           lista de factores de escala para generar versiones ampliadas/reducidas de cada caja.
                             Por defecto [0.7071, 1.0, 1.4142].
-          remove_inner_boxes: umbral de solape. Si una caja grande comparte con
-            otra más pequeña de la misma clase una fracción de área (definida
-            como intersección dividida por el área de la pequeña) mayor o igual
-            que este valor, la caja grande se eliminará. Si es ``None`` no se
-            eliminan cajas.
+        remove_inner_boxes: umbral de solape basado en IoU. Si una caja grande
+            comparte con otra más pequeña de la misma clase una intersección
+            sobre unión (IoU) mayor o igual que este valor, la caja grande se
+            eliminará. Si es ``None`` no se eliminan cajas.
         """
         super(CVNet_SG, self).__init__()
         self.score_thresh    = score_thresh
@@ -218,26 +217,21 @@ class CVNet_SG(nn.Module):
         classes_filt = classes[final_mask]  # (K',)
 
         if self.remove_inner_boxes is not None and boxes_filt.size(0) > 1:
-            boxes_filt, scores_filt, classes_filt = self._remove_boxes_by_iou(
+            boxes_filt, scores_filt, classes_filt = self._remove_overlapping_boxes(
                 boxes_filt, scores_filt, classes_filt, self.remove_inner_boxes
             )
 
         return boxes_filt, scores_filt, classes_filt
 
-    def _remove_boxes_by_iou(
+    def _remove_overlapping_boxes(
         self,
         boxes: torch.Tensor,
         scores: torch.Tensor,
         classes: torch.Tensor,
         thr: float,
     ):
-        """Elimina las cajas grandes cuyo solape con otra caja más pequeña de la
-        misma clase es mayor o igual que ``thr``.
-
-        El solape se mide como ``intersección / área_pequeña`` para que una caja
-        de mayor tamaño se descarte cuando ocupa prácticamente la misma región
-        que una más pequeña de la misma clase.
-        """
+        """Elimina las cajas grandes cuyo IoU con otra caja más pequeña de la misma
+        clase sea mayor o igual que ``thr``."""
         x1 = boxes[:, 0]
         y1 = boxes[:, 1]
         x2 = boxes[:, 2]
@@ -265,15 +259,15 @@ class CVNet_SG(nn.Module):
 
         areas_i = areas.unsqueeze(1)
         areas_j = areas.unsqueeze(0)
-        min_area = torch.minimum(areas_i, areas_j)
-        overlap = inter_area / (min_area + 1e-8)
+        union = areas_i + areas_j - inter_area
+        iou = inter_area / (union + 1e-8)
 
-        diag = torch.eye(boxes.size(0), dtype=torch.bool, device=boxes.device)
-        overlap[diag] = 0.0
+        idx = torch.arange(boxes.size(0), device=boxes.device)
+        iou[idx, idx] = 0.0
 
         class_eq = classes.unsqueeze(1) == classes.unsqueeze(0)
         bigger = areas_i > areas_j
-        discard = (overlap >= thr) & class_eq & bigger
+        discard = (iou >= thr) & class_eq & bigger
         keep = ~discard.any(dim=1)
 
         return boxes[keep], scores[keep], classes[keep]
