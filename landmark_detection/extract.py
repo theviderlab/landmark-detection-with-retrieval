@@ -37,7 +37,7 @@ class CVNet_SG(nn.Module):
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
         eps: float       = 1e-8,
-        remove_inner_boxes: bool = False
+        remove_inner_boxes: float | None = None
     ):
         """
         Args:
@@ -47,8 +47,11 @@ class CVNet_SG(nn.Module):
           iou_thresh:       umbral de IoU para la NMS.
           scales:           lista de factores de escala para generar versiones ampliadas/reducidas de cada caja.
                             Por defecto [0.7071, 1.0, 1.4142].
-          remove_inner_boxes: si es True elimina las cajas más grandes cuando
-            contienen completamente a otra del mismo tipo. Por defecto False.
+          remove_inner_boxes: umbral de solape. Si una caja grande comparte con
+            otra más pequeña de la misma clase una fracción de área (definida
+            como intersección dividida por el área de la pequeña) mayor o igual
+            que este valor, la caja grande se eliminará. Si es ``None`` no se
+            eliminan cajas.
         """
         super(CVNet_SG, self).__init__()
         self.score_thresh    = score_thresh
@@ -214,33 +217,66 @@ class CVNet_SG(nn.Module):
         scores_filt  = scores[final_mask]   # (K',)
         classes_filt = classes[final_mask]  # (K',)
 
-        if self.remove_inner_boxes and boxes_filt.size(0) > 1:
-            x1 = boxes_filt[:, 0].unsqueeze(1)
-            y1 = boxes_filt[:, 1].unsqueeze(1)
-            x2 = boxes_filt[:, 2].unsqueeze(1)
-            y2 = boxes_filt[:, 3].unsqueeze(1)
-
-            x1_j = boxes_filt[:, 0].unsqueeze(0)
-            y1_j = boxes_filt[:, 1].unsqueeze(0)
-            x2_j = boxes_filt[:, 2].unsqueeze(0)
-            y2_j = boxes_filt[:, 3].unsqueeze(0)
-
-            contains = (x1 <= x1_j) & (y1 <= y1_j) & (x2 >= x2_j) & (y2 >= y2_j)
-            diag_idx = torch.arange(contains.size(0), device=contains.device)
-            contains[diag_idx, diag_idx] = False
-
-            class_eq = classes_filt.unsqueeze(1) == classes_filt.unsqueeze(0)
-            areas = (boxes_filt[:, 2] - boxes_filt[:, 0]) * (boxes_filt[:, 3] - boxes_filt[:, 1])
-            bigger = areas.unsqueeze(1) > areas.unsqueeze(0)
-
-            discard = (contains & class_eq & bigger).any(dim=1)
-            keep = ~discard
-
-            boxes_filt = boxes_filt[keep]
-            scores_filt = scores_filt[keep]
-            classes_filt = classes_filt[keep]
+        if self.remove_inner_boxes is not None and boxes_filt.size(0) > 1:
+            boxes_filt, scores_filt, classes_filt = self._remove_boxes_by_iou(
+                boxes_filt, scores_filt, classes_filt, self.remove_inner_boxes
+            )
 
         return boxes_filt, scores_filt, classes_filt
+
+    def _remove_boxes_by_iou(
+        self,
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
+        classes: torch.Tensor,
+        thr: float,
+    ):
+        """Elimina las cajas grandes cuyo solape con otra caja más pequeña de la
+        misma clase es mayor o igual que ``thr``.
+
+        El solape se mide como ``intersección / área_pequeña`` para que una caja
+        de mayor tamaño se descarte cuando ocupa prácticamente la misma región
+        que una más pequeña de la misma clase.
+        """
+        x1 = boxes[:, 0]
+        y1 = boxes[:, 1]
+        x2 = boxes[:, 2]
+        y2 = boxes[:, 3]
+
+        areas = (x2 - x1) * (y2 - y1)
+
+        x1_i = x1.unsqueeze(1)
+        y1_i = y1.unsqueeze(1)
+        x2_i = x2.unsqueeze(1)
+        y2_i = y2.unsqueeze(1)
+        x1_j = x1.unsqueeze(0)
+        y1_j = y1.unsqueeze(0)
+        x2_j = x2.unsqueeze(0)
+        y2_j = y2.unsqueeze(0)
+
+        inter_x1 = torch.maximum(x1_i, x1_j)
+        inter_y1 = torch.maximum(y1_i, y1_j)
+        inter_x2 = torch.minimum(x2_i, x2_j)
+        inter_y2 = torch.minimum(y2_i, y2_j)
+
+        inter_w = (inter_x2 - inter_x1).clamp(min=0)
+        inter_h = (inter_y2 - inter_y1).clamp(min=0)
+        inter_area = inter_w * inter_h
+
+        areas_i = areas.unsqueeze(1)
+        areas_j = areas.unsqueeze(0)
+        min_area = torch.minimum(areas_i, areas_j)
+        overlap = inter_area / (min_area + 1e-8)
+
+        diag = torch.eye(boxes.size(0), dtype=torch.bool, device=boxes.device)
+        overlap[diag] = 0.0
+
+        class_eq = classes.unsqueeze(1) == classes.unsqueeze(0)
+        bigger = areas_i > areas_j
+        discard = (overlap >= thr) & class_eq & bigger
+        keep = ~discard.any(dim=1)
+
+        return boxes[keep], scores[keep], classes[keep]
 
     def _scale_boxes(
         self,
