@@ -37,7 +37,6 @@ class CVNet_SG(nn.Module):
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
         eps: float       = 1e-8,
-        remove_inner_boxes: float | None = None
     ):
         """
         Args:
@@ -47,17 +46,11 @@ class CVNet_SG(nn.Module):
           iou_thresh:       umbral de IoU para la NMS.
           scales:           lista de factores de escala para generar versiones ampliadas/reducidas de cada caja.
                             Por defecto [0.7071, 1.0, 1.4142].
-        remove_inner_boxes: umbral de solape que compara la intersección con el
-            área de la caja más pequeña. Si una caja grande comparte con otra
-            más pequeña de la misma clase una intersección dividida por el área
-            de la menor mayor o igual que este valor, la caja grande se
-            eliminará. Si es ``None`` no se eliminan cajas.
         """
         super(CVNet_SG, self).__init__()
         self.score_thresh    = score_thresh
         self.iou_thresh      = iou_thresh
         self.scales          = scales
-        self.remove_inner_boxes = remove_inner_boxes
 
         # Convertimos allowed_classes a tensor constante, tipo int64.
         self.register_buffer("allowed_cl", torch.tensor(allowed_classes, dtype=torch.int64))
@@ -217,73 +210,7 @@ class CVNet_SG(nn.Module):
         scores_filt  = scores[final_mask]   # (K',)
         classes_filt = classes[final_mask]  # (K',)
 
-        if self.remove_inner_boxes is not None and boxes_filt.size(0) > 1:
-            boxes_filt, scores_filt, classes_filt = self._remove_overlapping_boxes(
-                boxes_filt, scores_filt, classes_filt, self.remove_inner_boxes
-            )
-
         return boxes_filt, scores_filt, classes_filt
-
-    def _remove_overlapping_boxes(
-        self,
-        boxes: torch.Tensor,
-        scores: torch.Tensor,
-        classes: torch.Tensor,
-        thr: float,
-    ):
-        """Elimina las cajas grandes cuando el solape con otra caja más pequeña de
-        la misma clase (intersección dividida por el área de la menor) alcanza
-        o supera ``thr``."""
-
-        # Extraemos las coordenadas individuales (x1, y1, x2, y2)
-        x1 = boxes[:, 0]
-        y1 = boxes[:, 1]
-        x2 = boxes[:, 2]
-        y2 = boxes[:, 3]
-
-        # Área de cada caja para poder comparar tamaños
-        areas = (x2 - x1) * (y2 - y1)
-
-        # Expandir las coordenadas para el cálculo por pares de la intersección
-        x1_i = x1.unsqueeze(1)
-        y1_i = y1.unsqueeze(1)
-        x2_i = x2.unsqueeze(1)
-        y2_i = y2.unsqueeze(1)
-        x1_j = x1.unsqueeze(0)
-        y1_j = y1.unsqueeze(0)
-        x2_j = x2.unsqueeze(0)
-        y2_j = y2.unsqueeze(0)
-
-        # Coordenadas de la región de solape entre cada par de cajas
-        inter_x1 = torch.maximum(x1_i, x1_j)
-        inter_y1 = torch.maximum(y1_i, y1_j)
-        inter_x2 = torch.minimum(x2_i, x2_j)
-        inter_y2 = torch.minimum(y2_i, y2_j)
-
-        # Anchura y altura de la intersección (clamp a cero para evitar valores negativos)
-        inter_w = (inter_x2 - inter_x1).clamp(min=0)
-        inter_h = (inter_y2 - inter_y1).clamp(min=0)
-        inter_area = inter_w * inter_h
-
-        # Áreas de cada par y ratio de intersección sobre el área más pequeña
-        areas_i = areas.unsqueeze(1)
-        areas_j = areas.unsqueeze(0)
-        smaller = torch.minimum(areas_i, areas_j)
-        overlap = inter_area / (smaller + 1e-8)
-
-        # Evitamos comparar cada caja consigo misma (ratio = 0 en la diagonal)
-        idx = torch.arange(boxes.size(0), device=boxes.device)
-        overlap[idx, idx] = 0.0
-
-        # Sólo consideramos pares de la misma clase donde la caja i es más grande que la j
-        class_eq = classes.unsqueeze(1) == classes.unsqueeze(0)
-        bigger = areas_i > areas_j
-        discard = (overlap >= thr) & class_eq & bigger
-
-        # Mantener las cajas que no se descarten por solape con otras menores
-        keep = ~discard.any(dim=1)
-
-        return boxes[keep], scores[keep], classes[keep]
 
     def _scale_boxes(
         self,
