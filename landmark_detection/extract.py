@@ -37,7 +37,6 @@ class CVNet_SG(nn.Module):
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
         eps: float       = 1e-8,
-        remove_inner_boxes: bool = False
     ):
         """
         Args:
@@ -47,14 +46,11 @@ class CVNet_SG(nn.Module):
           iou_thresh:       umbral de IoU para la NMS.
           scales:           lista de factores de escala para generar versiones ampliadas/reducidas de cada caja.
                             Por defecto [0.7071, 1.0, 1.4142].
-          remove_inner_boxes: si es True elimina las cajas más grandes cuando
-            contienen completamente a otra del mismo tipo. Por defecto False.
         """
         super(CVNet_SG, self).__init__()
         self.score_thresh    = score_thresh
         self.iou_thresh      = iou_thresh
         self.scales          = scales
-        self.remove_inner_boxes = remove_inner_boxes
 
         # Convertimos allowed_classes a tensor constante, tipo int64.
         self.register_buffer("allowed_cl", torch.tensor(allowed_classes, dtype=torch.int64))
@@ -213,32 +209,6 @@ class CVNet_SG(nn.Module):
         boxes_filt   = boxes[final_mask]    # (K',4)
         scores_filt  = scores[final_mask]   # (K',)
         classes_filt = classes[final_mask]  # (K',)
-
-        if self.remove_inner_boxes and boxes_filt.size(0) > 1:
-            x1 = boxes_filt[:, 0].unsqueeze(1)
-            y1 = boxes_filt[:, 1].unsqueeze(1)
-            x2 = boxes_filt[:, 2].unsqueeze(1)
-            y2 = boxes_filt[:, 3].unsqueeze(1)
-
-            x1_j = boxes_filt[:, 0].unsqueeze(0)
-            y1_j = boxes_filt[:, 1].unsqueeze(0)
-            x2_j = boxes_filt[:, 2].unsqueeze(0)
-            y2_j = boxes_filt[:, 3].unsqueeze(0)
-
-            contains = (x1 <= x1_j) & (y1 <= y1_j) & (x2 >= x2_j) & (y2 >= y2_j)
-            diag_idx = torch.arange(contains.size(0), device=contains.device)
-            contains[diag_idx, diag_idx] = False
-
-            class_eq = classes_filt.unsqueeze(1) == classes_filt.unsqueeze(0)
-            areas = (boxes_filt[:, 2] - boxes_filt[:, 0]) * (boxes_filt[:, 3] - boxes_filt[:, 1])
-            bigger = areas.unsqueeze(1) > areas.unsqueeze(0)
-
-            discard = (contains & class_eq & bigger).any(dim=1)
-            keep = ~discard
-
-            boxes_filt = boxes_filt[keep]
-            scores_filt = scores_filt[keep]
-            classes_filt = classes_filt[keep]
 
         return boxes_filt, scores_filt, classes_filt
 
