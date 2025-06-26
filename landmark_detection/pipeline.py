@@ -126,6 +126,9 @@ class Pipeline_Yolo_CVNet_SG():
         print('Creando versión ONNX del extractor')
         self._export_extractor(extractor, extractor_onnx_path, test_image_path)
 
+        print('Instanciando el extractor')
+        self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
+
         print('Creando versión ONNX del searcher')
         self._export_searcher(searcher, searcher_onnx_path, test_image_path)
 
@@ -154,10 +157,6 @@ class Pipeline_Yolo_CVNet_SG():
             os.remove(preprocess_onnx_path)
         if os.path.exists(postprocess_onnx_path):
             os.remove(postprocess_onnx_path)
-
-        # Instanciar extractor
-        print('Instanciando el extractor')
-        self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
 
         # Instanciar pipeline
         print('Instanciando el pipeline completo')
@@ -413,7 +412,52 @@ class Pipeline_Yolo_CVNet_SG():
         onnx.save(model, extractor_onnx_path)
 
     def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str):
-        pass
+        detections, img, orig_size = self.detect(test_image_path)
+
+        if isinstance(detections, (list, tuple)):
+            detections = detections[0]
+
+        boxes, scores, classes, descriptors, _ = self.extract(img, detections, orig_size)
+
+        boxes = torch.from_numpy(boxes)
+        scores = torch.from_numpy(scores)
+        classes = torch.from_numpy(classes)
+        descriptors = torch.from_numpy(descriptors)
+
+        X = descriptors.clone()
+        idx = torch.arange(len(X), dtype=torch.int64)
+
+        torch.onnx.export(
+            searcher,
+            (
+                boxes,
+                scores,
+                classes,
+                descriptors,
+                X,
+                idx,
+            ),
+            searcher_onnx_path,
+            opset_version=16,
+            input_names=[
+                "boxes",
+                "scores",
+                "classes",
+                "descriptors",
+                "X",
+                "idx",
+            ],
+            output_names=["boxes", "scores", "classes"],
+            dynamic_axes={
+                "boxes": {0: "num_boxes"},
+                "scores": {0: "num_boxes"},
+                "classes": {0: "num_boxes"},
+                "descriptors": {0: "num_boxes"},
+                "X": {0: "db_size"},
+                "idx": {0: "db_size"},
+            },
+            do_constant_folding=True,
+        )
 
     def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
         dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
