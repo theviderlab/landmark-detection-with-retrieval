@@ -1,7 +1,8 @@
 import torch
-from landmark_detection.extract import CVNet_SG
 from landmark_detection.preprocess import PreprocessModule
+from landmark_detection.extract import CVNet_SG
 from landmark_detection.postprocess import PostprocessModule
+from landmark_detection.search import Similarity_Search
 
 from ultralytics import YOLO
 import os
@@ -19,9 +20,10 @@ class Pipeline_Yolo_CVNet_SG():
 
     def __init__(
         self,
-        detector_file: str = "yolov8n-oiv7.onnx",
-        extractor_onnx_file: str = "cvnet-sg.onnx",
-        pipeline_onnx_file: str = "pipeline-yolo-cvnet-sg.onnx",
+        detector_file: str = "detector.onnx",
+        extractor_onnx_file: str = "extractor.onnx",
+        searcher_onnx_file: str = "searcher.onnx",
+        pipeline_onnx_file: str = "pipeline.onnx",
         image_dim: tuple[int] = (640, 640),
         orig_size: tuple[int, int] | None = None,
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
@@ -37,16 +39,22 @@ class Pipeline_Yolo_CVNet_SG():
         gem_p: float     = 4.6,
         sgem_ps: float   = 10.0,
         sgem_infinity: bool = False,
-        eps: float       = 1e-8
+        eps: float       = 1e-8,
+        topk: int = 5,
+        min_sim: float = 0.8,
+        min_votes: float = 0.0,
+        remove_inner_boxes: float | None = None,
+        join_boxes: bool = False,
     ):
         self.image_dim = image_dim
         self.orig_size = orig_size
         self.preprocess_module = PreprocessModule(image_dim, orig_size)
         self.postprocess_module = PostprocessModule(image_dim)
+
         # Obtener el directorio donde está este archivo Python (el módulo)
         module_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Si detector_file es .pt crea .onnx
+        ## DETECTOR
         if not os.path.isabs(detector_file) and not os.path.exists(detector_file):
             # Construir la ruta absoluta dentro de este módulo
             detector_path = os.path.join(module_dir, "models", detector_file)
@@ -54,6 +62,7 @@ class Pipeline_Yolo_CVNet_SG():
             detector_path = detector_file
 
         detector_file_ext = os.path.splitext(detector_path)[-1].lower()
+        # Si detector_file es .pt crea .onnx
         if detector_file_ext == ".pt":
             # Instanciar el detector de objetos
             print('Creando versión ONNX del detector')
@@ -68,6 +77,7 @@ class Pipeline_Yolo_CVNet_SG():
         print('Instanciando el detector')
         self.detector = ort.InferenceSession(detector_onnx_path, providers=["CPUExecutionProvider"])
 
+        ## EXTRACTOR
         # Si no existe el archivo .onnx se crea
         if not os.path.isabs(extractor_onnx_file) and not os.path.exists(extractor_onnx_file):
             # Construir la ruta absoluta dentro de este módulo
@@ -90,34 +100,53 @@ class Pipeline_Yolo_CVNet_SG():
             eps = eps
         ).eval()
 
-        # Obtener el directorio donde está este archivo Python (el módulo)
-        module_dir = os.path.dirname(os.path.abspath(__file__))
+        ## SEARCHER
+        # Si no existe el archivo .onnx se crea
+        if not os.path.isabs(searcher_onnx_file) and not os.path.exists(searcher_onnx_file):
+            # Construir la ruta absoluta dentro de este módulo
+            searcher_onnx_path = os.path.join(module_dir, "models", searcher_onnx_file)
+        else:
+            searcher_onnx_path = searcher_onnx_file
+
+        searcher = Similarity_Search(
+            topk = topk,
+            min_sim = min_sim,
+            min_votes = min_votes,
+            remove_inner_boxes = remove_inner_boxes,
+            join_boxes = join_boxes,
+        ).eval()
+
+        ## PIPELINE      
         # Construir la ruta absoluta a test_images/test.jpg dentro de este módulo
         test_image_path = os.path.join(module_dir, "test_images", "test.jpg")
+
+        print('Creando versión ONNX del preprocess')
+        preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
+        self._export_preprocess(self.preprocess_module, preprocess_onnx_path, test_image_path)
+
         print('Creando versión ONNX del extractor')
         self._export_extractor(extractor, extractor_onnx_path, test_image_path)
 
+        print('Creando versión ONNX del searcher')
+        self._export_searcher(searcher, searcher_onnx_path, test_image_path)
+
+        print('Creando versión ONNX del postprocess')
+        postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
+        self._export_postprocess(self.postprocess_module, postprocess_onnx_path)
+
+        print('Creando versión ONNX del pipeline completo')
         # Si no existe el archivo .onnx se crea
         if not os.path.isabs(pipeline_onnx_file) and not os.path.exists(pipeline_onnx_file):
             # Construir la ruta absoluta dentro de este módulo
             pipeline_onnx_path = os.path.join(module_dir, "models", pipeline_onnx_file)
         else:
             pipeline_onnx_path = pipeline_onnx_file
-        
-        preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
-        postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
 
-        print('Creando versión ONNX del preprocess')
-        self._export_preprocess(self.preprocess_module, preprocess_onnx_path, test_image_path)
-
-        print('Creando versión ONNX del postprocess')
-        self._export_postprocess(self.postprocess_module, postprocess_onnx_path)
-
-        print('Creando versión ONNX del pipeline completo')
         self._export_pipeline(
             preprocess_onnx_path,
             detector_onnx_path,
             extractor_onnx_path,
+            searcher_onnx_path,
             postprocess_onnx_path,
             pipeline_onnx_path,
         )
@@ -152,6 +181,20 @@ class Pipeline_Yolo_CVNet_SG():
         self.sgem_infinity = sgem_infinity
         self.eps = eps
 
+    def preprocess(self, image):
+        """Carga y normaliza la imagen."""
+        if isinstance(image, str):
+            img_bgr = cv2.imread(image)
+            if img_bgr is None:
+                raise FileNotFoundError(f"No se encontró la imagen en {image}")
+            img_tensor = torch.from_numpy(img_bgr)
+        else:
+            img_tensor = torch.as_tensor(image)
+
+        processed, orig_size = self.preprocess_module(img_tensor)
+        orig_size = orig_size.to(dtype=torch.float32).numpy()
+        return processed.numpy(), orig_size
+    
     def detect(self, image):
 
         # Preprocesar imagen
@@ -165,11 +208,35 @@ class Pipeline_Yolo_CVNet_SG():
 
         return detections, img, orig_size
     
-    def extract(self, img, detections, orig_size=None):
-        extractor_inputs = {"detections": detections, "image": img}
+    def extract(self, image, detections, orig_size=None):
+        extractor_inputs = {"detections": detections, "image": image}
         if orig_size is not None and len(self.extractor.get_inputs()) > 2:
             extractor_inputs[self.extractor.get_inputs()[2].name] = orig_size
         return self.extractor.run(None, extractor_inputs)
+
+    def search(self, results, orig_size=None):
+        pass
+
+    def postprocess(self, results, orig_size):
+        """Escala las cajas al tamaño original de la imagen."""
+        results = list(results)
+        if len(results) > 0:
+            boxes = torch.as_tensor(results[0])
+            scores = torch.as_tensor(results[1])
+            classes = torch.as_tensor(results[2])
+            descriptors = torch.as_tensor(results[3])
+            orig = torch.tensor([
+                orig_size[0],
+                orig_size[1],
+            ], dtype=torch.float32)
+            (
+                results[0],
+                results[1],
+                results[2],
+                results[3],
+            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
+            results = [r for r in results]
+        return results
     
     def run(self, image):
         """Ejecuta la inferencia completa empleando el modelo ONNX unido."""
@@ -205,6 +272,33 @@ class Pipeline_Yolo_CVNet_SG():
             results[0] = (boxes * scale).numpy()
 
         return results
+    
+    def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
+        if self.orig_size is not None:
+            img_tensor = torch.zeros(
+                (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
+            )
+        else:
+            img_bgr = cv2.imread(test_image_path)
+            if img_bgr is None:
+                raise FileNotFoundError(f"No se encontró {test_image_path}")
+            img_tensor = torch.from_numpy(img_bgr)
+
+        export_args = dict(
+            opset_version=16,
+            input_names=["image_bgr"],
+            output_names=["image", "orig_size"],
+            do_constant_folding=True,
+        )
+        if self.orig_size is None:
+            export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
+
+        torch.onnx.export(
+            preprocess_module,
+            img_tensor,
+            preprocess_onnx_path,
+            **export_args,
+        )
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
@@ -319,32 +413,8 @@ class Pipeline_Yolo_CVNet_SG():
 
         onnx.save(model, extractor_onnx_path)
 
-    def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
-        if self.orig_size is not None:
-            img_tensor = torch.zeros(
-                (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
-            )
-        else:
-            img_bgr = cv2.imread(test_image_path)
-            if img_bgr is None:
-                raise FileNotFoundError(f"No se encontró {test_image_path}")
-            img_tensor = torch.from_numpy(img_bgr)
-
-        export_args = dict(
-            opset_version=16,
-            input_names=["image_bgr"],
-            output_names=["image", "orig_size"],
-            do_constant_folding=True,
-        )
-        if self.orig_size is None:
-            export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
-
-        torch.onnx.export(
-            preprocess_module,
-            img_tensor,
-            preprocess_onnx_path,
-            **export_args,
-        )
+    def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str):
+        pass
 
     def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
         dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
@@ -386,17 +456,20 @@ class Pipeline_Yolo_CVNet_SG():
         preprocess_onnx_path: str,
         detector_onnx_path: str,
         extractor_onnx_path: str,
+        searcher_onnx_path: str,
         postprocess_onnx_path: str,
         pipeline_onnx_path: str,
     ):
         preprocess_onnx = onnx.load(preprocess_onnx_path)
         detector_onnx = onnx.load(detector_onnx_path)
         extractor_onnx = onnx.load(extractor_onnx_path)
+        searcher_onnx = onnx.load(searcher_onnx_path)
         postprocess_onnx = onnx.load(postprocess_onnx_path)
 
         # Prefix graphs to avoid name collisions when merging
         detector_onnx = compose.add_prefix(detector_onnx, "det_")
         extractor_onnx = compose.add_prefix(extractor_onnx, "ext_")
+        searcher_onnx = compose.add_prefix(searcher_onnx, "ser_")
         postprocess_onnx = compose.add_prefix(postprocess_onnx, "post_")
 
         # Preprocess -> Detector
@@ -485,16 +558,8 @@ class Pipeline_Yolo_CVNet_SG():
         with open(json_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def preprocess(self, image):
-        """Carga y normaliza la imagen."""
-        if isinstance(image, str):
-            img_bgr = cv2.imread(image)
-            if img_bgr is None:
-                raise FileNotFoundError(f"No se encontró la imagen en {image}")
-            img_tensor = torch.from_numpy(img_bgr)
-        else:
-            img_tensor = torch.as_tensor(image)
 
+<<<<<<< Updated upstream
         processed, orig_size = self.preprocess_module(img_tensor)
         orig_size = orig_size.to(dtype=torch.float32).numpy()
         return processed.numpy(), orig_size
@@ -650,3 +715,5 @@ class Similarity_Search():
                 if inter / areas[smaller] >= thr:
                     new_labels[bigger] = None
         return new_labels
+=======
+>>>>>>> Stashed changes
