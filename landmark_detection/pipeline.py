@@ -560,6 +560,7 @@ class Pipeline_Yolo_CVNet_SG():
 
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         processed, orig_size = self.preprocess_module(img_tensor)
         orig_size = orig_size.to(dtype=torch.float32).numpy()
         return processed.numpy(), orig_size
@@ -716,4 +717,5 @@ class Similarity_Search():
                     new_labels[bigger] = None
         return new_labels
 =======
+>>>>>>> Stashed changes
 >>>>>>> Stashed changes
