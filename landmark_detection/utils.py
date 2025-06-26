@@ -129,86 +129,56 @@ def load_names_from_yaml(file_path):
 
 
 def show_similarity_search(
-    results,
-    top_sims,
-    top_idx,
-    df_result,
-    landmark_tensor,
     final_boxes,
+    final_scores,
+    final_classes,
     query_img_path,
-    image_folder,
-    top_n: int = 5,
+    class_names_path,
 ):
     """Visualiza los resultados de :class:`Similarity_Search`.
 
     Parameters
     ----------
-    results : Sequence[int | None]
-        Lista con el ``landmark`` asignado a cada detección de la consulta
-        o ``None`` si la similitud mínima no se superó.
-    top_sims : numpy.ndarray | torch.Tensor
-        Matriz ``(D, K)`` con las similitudes de los ``K`` vecinos más
-        cercanos para cada una de las ``D`` detecciones de la consulta.
-    top_idx : numpy.ndarray | torch.Tensor
-        Índices de ``df_result`` correspondientes a ``top_sims``.
-    df_result : pandas.DataFrame
-        Salida de :func:`benchmark.database.build_image_database` con la
-        información de las detecciones de la base de datos.
-    landmark_tensor : Sequence[int]
-        Clase ``class_id`` asociada a cada fila de ``df_result``.
-    final_boxes : list
-        Resultado de :meth:`Pipeline_Yolo_CVNet_SG.run` utilizado para
-        obtener las cajas de la imagen de consulta.
+    final_boxes : Sequence[Sequence[float]]
+        Cajas obtenidas tras la búsqueda de similitud.
+    final_scores : Sequence[float]
+        Puntuaciones de similitud de cada caja.
+    final_classes : Sequence[int | None]
+        ``landmark`` asignado a cada detección o ``None`` si no se pudo
+        determinar.
     query_img_path : str
         Ruta de la imagen de consulta.
-    image_folder : str
-        Carpeta donde se encuentran las imágenes referenciadas en
-        ``df_result``.
-    top_n : int, optional
-        Número máximo de vecinos a visualizar por detección.
+    class_names_path : str
+        Archivo YAML con los nombres de las clases para mostrar en la figura.
     """
 
-    final_boxes = np.array(final_boxes)
+    final_boxes = np.asarray(final_boxes)
+    final_scores = np.asarray(final_scores)
 
     q_img_bgr = cv2.imread(query_img_path)
     if q_img_bgr is None:
         raise FileNotFoundError(f"No se encontró la imagen en {query_img_path}")
     q_img_rgb = cv2.cvtColor(q_img_bgr, cv2.COLOR_BGR2RGB)
 
-    n_queries = final_boxes.shape[0]
-    top_n = min(top_n, top_idx.shape[1])
+    class_names = load_names_from_yaml(class_names_path)
 
-    fig, axes = plt.subplots(n_queries, top_n + 1, figsize=(3 * (top_n + 1), 3 * n_queries))
-    axes = np.atleast_2d(axes)
+    n_boxes = final_boxes.shape[0]
+    fig, axes = plt.subplots(1, n_boxes, figsize=(3 * n_boxes, 3))
+    axes = np.atleast_1d(axes)
 
-    for row in range(n_queries):
-        x1, y1, x2, y2 = map(int, final_boxes[row])
-        crop_q = q_img_rgb[y1:y2, x1:x2]
-        axes[row, 0].imshow(crop_q)
-        label = results[row] if row < len(results) else None
-        axes[row, 0].set_title(f"Q{row}→{label}")
-        axes[row, 0].axis("off")
-
-        for col in range(top_n):
-            db_id = int(top_idx[row, col])
-            sim = float(top_sims[row, col])
-            img_name = df_result.loc[db_id, "image_name"]
-            bbox = df_result.loc[db_id, "bbox"]
-            img_path = os.path.join(image_folder, img_name)
-            db_img = cv2.imread(img_path)
-            if db_img is None:
-                raise FileNotFoundError(f"No se encontró la imagen en {img_path}")
-            db_img = cv2.cvtColor(db_img, cv2.COLOR_BGR2RGB)
-            x1d, y1d, x2d, y2d = map(int, bbox)
-            crop_db = db_img[y1d:y2d, x1d:x2d]
-            cls = int(landmark_tensor[db_id]) if landmark_tensor is not None else -1
-            ax = axes[row, col + 1]
-            ax.imshow(crop_db)
-            ax.set_title(f"{cls} ({sim:.2f})")
-            ax.axis("off")
-
-        for col in range(top_n, axes.shape[1] - 1):
-            axes[row, col + 1].axis("off")
+    for i in range(n_boxes):
+        x1, y1, x2, y2 = map(int, final_boxes[i])
+        crop = q_img_rgb[y1:y2, x1:x2]
+        axes[i].imshow(crop)
+        cls = final_classes[i]
+        if cls is None:
+            label = "None"
+        elif 0 <= cls < len(class_names):
+            label = class_names[cls]
+        else:
+            label = str(cls)
+        axes[i].set_title(f"{label} ({final_scores[i]:.2f})")
+        axes[i].axis("off")
 
     plt.tight_layout()
     plt.show()
