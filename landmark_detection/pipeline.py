@@ -557,28 +557,3 @@ class Pipeline_Yolo_CVNet_SG():
 
         with open(json_path, "w") as f:
             json.dump(data, f, indent=2)
-
-        processed, orig_size = self.preprocess_module(img_tensor)
-        orig_size = orig_size.to(dtype=torch.float32).numpy()
-        return processed.numpy(), orig_size
-
-    def postprocess(self, results, original_size):
-        """Escala las cajas al tamaño original de la imagen."""
-        results = list(results)
-        if len(results) > 0:
-            boxes = torch.as_tensor(results[0])
-            scores = torch.as_tensor(results[1])
-            classes = torch.as_tensor(results[2])
-            descriptors = torch.as_tensor(results[3])
-            orig = torch.tensor([
-                original_size[0],
-                original_size[1],
-            ], dtype=torch.float32)
-            (
-                results[0],
-                results[1],
-                results[2],
-                results[3],
-            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
-            results = [r for r in results]
-        return results
