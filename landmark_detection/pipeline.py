@@ -8,7 +8,6 @@ from ultralytics import YOLO
 import os
 import cv2
 from typing import List
-import numpy as np
 import json
 
 import onnxruntime as ort
