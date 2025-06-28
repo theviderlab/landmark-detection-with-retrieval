@@ -28,7 +28,7 @@ class Pipeline_Yolo_CVNet_SG():
         image_dim: tuple[int] = (640, 640),
         orig_size: tuple[int, int] | None = None,
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
-                                      298,310,335,351,354,390,393,401,403,439,442,457,466,489,510,512,
+                                      298,310,335,351,390,393,401,403,439,442,457,466,489,510,512,
                                       514,524,530,531,543,546,554,565,573,580,587,588,591],
         score_thresh: float = 0.10,
         iou_thresh: float = 0.45,
@@ -136,10 +136,10 @@ class Pipeline_Yolo_CVNet_SG():
         print('Instanciando el extractor')
         self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
 
-        detections, img, orig_size = self.detect(test_image_path)
+        detections, img, orig_size = self.detect(test_image_path, places_db)
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
-        _, _, _, descriptors, _ = self.extract(img, detections, orig_size)
+        _, _, _, descriptors, _, _ = self.extract(img, detections, places_db, orig_size)
 
         print('Creando versión ONNX del searcher')
         self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
@@ -229,10 +229,18 @@ class Pipeline_Yolo_CVNet_SG():
 
         return detections, img, orig_size
     
-    def extract(self, image, detections, orig_size=None):
+    def extract(self, image, detections, places_db, orig_size=None):
         extractor_inputs = {"detections": detections, "image": image}
         if orig_size is not None and len(self.extractor.get_inputs()) > 2:
             extractor_inputs[self.extractor.get_inputs()[2].name] = orig_size
+
+        if isinstance(places_db, torch.Tensor):
+            places_np = places_db.detach().cpu().numpy().astype(np.float32)
+        else:
+            places_np = np.asarray(places_db, dtype=np.float32)
+
+        extractor_inputs[self.detector.get_inputs()[2].name] = places_np
+
         return self.extractor.run(None, extractor_inputs)
 
     def search(self, places_db, boxes, descriptors, orig_size=None):
@@ -553,7 +561,7 @@ class Pipeline_Yolo_CVNet_SG():
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
 
-        boxes, scores, classes, descriptors, _ = self.extract(img, detections, orig_size)
+        boxes, scores, classes, descriptors, _, _ = self.extract(img, detections, places_db, orig_size)
 
         boxes = torch.from_numpy(boxes)
         scores = torch.from_numpy(scores)
