@@ -217,7 +217,13 @@ class Pipeline_Yolo_CVNet_SG():
         detector_inputs = {self.detector.get_inputs()[0].name: img}
         if len(self.detector.get_inputs()) > 1:
             detector_inputs[self.detector.get_inputs()[1].name] = orig_size
-        detector_inputs[self.detector.get_inputs()[2].name] = places_db
+
+        if isinstance(places_db, torch.Tensor):
+            places_np = places_db.detach().cpu().numpy().astype(np.float32)
+        else:
+            places_np = np.asarray(places_db, dtype=np.float32)
+
+        detector_inputs[self.detector.get_inputs()[2].name] = places_np
 
         detections = self.detector.run(None, detector_inputs)
 
@@ -233,8 +239,16 @@ class Pipeline_Yolo_CVNet_SG():
         """Asigna un ``place_id`` a cada caja mediante búsqueda de similitud."""
 
         boxes_np = boxes.detach().cpu().numpy() if isinstance(boxes, torch.Tensor) else boxes
-        desc_np = descriptors.detach().cpu().numpy() if isinstance(descriptors, torch.Tensor) else descriptors
-        db_np = places_db.detach().cpu().numpy() if isinstance(places_db, torch.Tensor) else places_db
+        desc_np = (
+            descriptors.detach().cpu().numpy().astype(np.float32)
+            if isinstance(descriptors, torch.Tensor)
+            else np.asarray(descriptors, dtype=np.float32)
+        )
+        db_np = (
+            places_db.detach().cpu().numpy().astype(np.float32)
+            if isinstance(places_db, torch.Tensor)
+            else np.asarray(places_db, dtype=np.float32)
+        )
 
         num_boxes = boxes_np.shape[0]
         dummy_scores = np.zeros((num_boxes,), dtype=np.float32)
@@ -292,9 +306,14 @@ class Pipeline_Yolo_CVNet_SG():
 
         img_tensor = torch.as_tensor(img_bgr)
 
+        if isinstance(places_db, torch.Tensor):
+            db_np = places_db.detach().cpu().numpy().astype(np.float32)
+        else:
+            db_np = np.asarray(places_db, dtype=np.float32)
+
         pipeline_inputs = {
             self.pipeline.get_inputs()[0].name: img_tensor.numpy(),
-            self.pipeline.get_inputs()[1].name: places_db,
+            self.pipeline.get_inputs()[1].name: db_np,
         }
         results = self.pipeline.run(None, pipeline_inputs)
 
@@ -529,7 +548,7 @@ class Pipeline_Yolo_CVNet_SG():
         onnx.save(model, extractor_onnx_path)
 
     def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str, places_db):
-        detections, img, orig_size = self.detect(test_image_path)
+        detections, img, orig_size = self.detect(test_image_path, places_db)
 
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
@@ -541,7 +560,8 @@ class Pipeline_Yolo_CVNet_SG():
         classes = torch.from_numpy(classes)
         descriptors = torch.from_numpy(descriptors)
 
-        db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
+        db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db, dtype=descriptors.dtype)
+        db = db.to(dtype=descriptors.dtype)
 
         torch.onnx.export(
             searcher,
