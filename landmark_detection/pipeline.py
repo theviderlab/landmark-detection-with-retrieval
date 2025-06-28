@@ -504,6 +504,7 @@ class Pipeline_Yolo_CVNet_SG():
             },
             do_constant_folding=True
         )
+
         # Añadir bypass para orig_size
         model = onnx.load(extractor_onnx_path)
         graph = model.graph
@@ -561,15 +562,13 @@ class Pipeline_Yolo_CVNet_SG():
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
 
-        boxes, scores, classes, descriptors, _, _ = self.extract(img, detections, places_db, orig_size)
+        boxes, scores, classes, descriptors, _, places_db = self.extract(img, detections, places_db, orig_size)
 
         boxes = torch.from_numpy(boxes)
         scores = torch.from_numpy(scores)
         classes = torch.from_numpy(classes)
         descriptors = torch.from_numpy(descriptors)
-
-        db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db, dtype=descriptors.dtype)
-        db = db.to(dtype=descriptors.dtype)
+        places_db = torch.from_numpy(places_db)
 
         torch.onnx.export(
             searcher,
@@ -578,7 +577,7 @@ class Pipeline_Yolo_CVNet_SG():
                 scores,
                 classes,
                 descriptors,
-                db,
+                places_db,
             ),
             searcher_onnx_path,
             opset_version=16,
@@ -600,6 +599,34 @@ class Pipeline_Yolo_CVNet_SG():
             do_constant_folding=True,
         )
 
+        # Añadir bypass para orig_size
+        model = onnx.load(searcher_onnx_path)
+        graph = model.graph
+
+        orig_input = helper.make_tensor_value_info(
+            name="orig_size",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.input.append(orig_input)
+
+        orig_node = helper.make_node(
+            "Identity",
+            inputs=["orig_size"],
+            outputs=["orig_size_out"],
+            name="Identity_ExposeOrigSizeExt",
+        )
+        graph.node.append(orig_node)
+
+        orig_output = helper.make_tensor_value_info(
+            name="orig_size_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.output.append(orig_output)
+
+        onnx.save(model, searcher_onnx_path)
+        
     def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
         dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
         dummy_scores = torch.zeros((1,), dtype=torch.float32)
@@ -688,6 +715,10 @@ class Pipeline_Yolo_CVNet_SG():
         # Extractor -> Searcher
         ext_outputs = [o.name for o in extractor_onnx.graph.output]
         ser_inputs = [i.name for i in searcher_onnx.graph.input]
+
+        print(ext_outputs) # debug
+        print(ser_inputs) # debug
+
         merged_pdes = compose.merge_models(
             merged_pde,
             searcher_onnx,
