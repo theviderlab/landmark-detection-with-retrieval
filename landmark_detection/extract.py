@@ -146,7 +146,7 @@ class CVNet_SG(nn.Module):
 
         descriptors = F.normalize(descriptors, p=2, dim=1)
 
-        return final_boxes, final_scores, final_classes, descriptors
+        return final_boxes, descriptors
 
     def _decode_and_score(self, raw_pred: torch.Tensor):
         """

@@ -139,7 +139,7 @@ class Pipeline_Yolo_CVNet_SG():
         detections, img, orig_size = self.detect(test_image_path, places_db)
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
-        _, _, _, descriptors, _, _ = self.extract(img, detections, places_db, orig_size)
+        _, descriptors, _, _ = self.extract(img, detections, places_db, orig_size)
 
         print('Creando versión ONNX del searcher')
         self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
@@ -284,7 +284,6 @@ class Pipeline_Yolo_CVNet_SG():
             boxes = torch.as_tensor(results[0])
             scores = torch.as_tensor(results[1])
             classes = torch.as_tensor(results[2])
-            descriptors = torch.as_tensor(results[3])
             orig = torch.tensor([
                 orig_size[0],
                 orig_size[1],
@@ -293,8 +292,7 @@ class Pipeline_Yolo_CVNet_SG():
                 results[0],
                 results[1],
                 results[2],
-                results[3],
-            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
+            ) = self.postprocess_module(boxes, scores, classes, orig)
             results = [r for r in results]
         return results
     
@@ -495,11 +493,9 @@ class Pipeline_Yolo_CVNet_SG():
             extractor_onnx_path,
             opset_version=16,                   # OPS versión >= 11 para NMS
             input_names=["detections", "image"],           # nombre del input
-            output_names=["boxes", "scores", "classes", "descriptors"],
+            output_names=["boxes", "descriptors"],
             dynamic_axes={
                 "boxes":        {0: "num_boxes"},
-                "scores":       {0: "num_boxes"},
-                "classes":      {0: "num_boxes"},
                 "descriptors":  {0: "num_boxes"}
             },
             do_constant_folding=True
@@ -562,11 +558,9 @@ class Pipeline_Yolo_CVNet_SG():
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
 
-        boxes, scores, classes, descriptors, _, places_db = self.extract(img, detections, places_db, orig_size)
+        boxes, descriptors, _, places_db = self.extract(img, detections, places_db, orig_size)
 
         boxes = torch.from_numpy(boxes)
-        scores = torch.from_numpy(scores)
-        classes = torch.from_numpy(classes)
         descriptors = torch.from_numpy(descriptors)
         places_db = torch.from_numpy(places_db)
 
@@ -574,8 +568,6 @@ class Pipeline_Yolo_CVNet_SG():
             searcher,
             (
                 boxes,
-                scores,
-                classes,
                 descriptors,
                 places_db,
             ),
@@ -583,16 +575,12 @@ class Pipeline_Yolo_CVNet_SG():
             opset_version=16,
             input_names=[
                 "boxes",
-                "scores",
-                "classes",
                 "descriptors",
                 "places_db",
             ],
             output_names=["boxes", "scores", "classes"],
             dynamic_axes={
                 "boxes": {0: "num_boxes"},
-                "scores": {0: "num_boxes"},
-                "classes": {0: "num_boxes"},
                 "descriptors": {0: "num_boxes"},
                 "places_db": {0: "db_size"},
             },
@@ -632,7 +620,6 @@ class Pipeline_Yolo_CVNet_SG():
         dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
         dummy_scores = torch.zeros((1,), dtype=torch.float32)
         dummy_classes = torch.zeros((1,), dtype=torch.int64)
-        dummy_descriptors = torch.zeros((1, 2048), dtype=torch.float32)
         dummy_orig = torch.tensor([float(self.image_dim[0]), float(self.image_dim[1])], dtype=torch.float32)
 
         torch.onnx.export(
@@ -641,7 +628,6 @@ class Pipeline_Yolo_CVNet_SG():
                 dummy_boxes,
                 dummy_scores,
                 dummy_classes,
-                dummy_descriptors,
                 dummy_orig,
             ),
             postprocess_onnx_path,
@@ -650,15 +636,13 @@ class Pipeline_Yolo_CVNet_SG():
                 "final_boxes",
                 "final_scores",
                 "final_classes",
-                "descriptors",
                 "orig_size",
             ],
-            output_names=["boxes", "scores", "classes", "descriptors"],
+            output_names=["boxes", "scores", "classes"],
             dynamic_axes={
                 "final_boxes": {0: "num_boxes"},
                 "final_scores": {0: "num_boxes"},
                 "final_classes": {0: "num_boxes"},
-                "descriptors": {0: "num_boxes"},
             },
             do_constant_folding=True,
         )
@@ -717,8 +701,8 @@ class Pipeline_Yolo_CVNet_SG():
         ext_outputs = [o.name for o in extractor_onnx.graph.output]
         ser_inputs = [i.name for i in searcher_onnx.graph.input]
 
-        print(ext_outputs) # debug
-        print(ser_inputs) # debug
+        print(ext_outputs)
+        print(ser_inputs)
 
         merged_pdes = compose.merge_models(
             merged_pde,
@@ -726,15 +710,15 @@ class Pipeline_Yolo_CVNet_SG():
             io_map=[
                 (ext_outputs[0], ser_inputs[0]),
                 (ext_outputs[1], ser_inputs[1]),
-                (ext_outputs[2], ser_inputs[2]),
-                (ext_outputs[3], ser_inputs[3]),
-                (ext_outputs[5], ser_inputs[4]),
+                (ext_outputs[2], ser_inputs[3]),
+                (ext_outputs[3], ser_inputs[2]),
             ],
         )
 
         # Searcher -> Postprocess
         ser_outputs = [o.name for o in searcher_onnx.graph.output]
         post_inputs = [i.name for i in postprocess_onnx.graph.input]
+
         merged_model = compose.merge_models(
             merged_pdes,
             postprocess_onnx,
@@ -742,8 +726,7 @@ class Pipeline_Yolo_CVNet_SG():
                 (ser_outputs[0], post_inputs[0]),
                 (ser_outputs[1], post_inputs[1]),
                 (ser_outputs[2], post_inputs[2]),
-                (ext_outputs[3], post_inputs[3]),
-                (ext_outputs[4], post_inputs[4]),
+                (ser_outputs[3], post_inputs[3]),
             ],
         )
 
