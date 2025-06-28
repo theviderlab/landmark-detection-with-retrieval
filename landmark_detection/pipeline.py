@@ -129,8 +129,16 @@ class Pipeline_Yolo_CVNet_SG():
         print('Instanciando el extractor')
         self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
 
+        detections, img, orig_size = self.detect(test_image_path)
+        if isinstance(detections, (list, tuple)):
+            detections = detections[0]
+        _, _, _, descriptors, _ = self.extract(img, detections, orig_size)
+        X = torch.from_numpy(descriptors)
+        idx = torch.arange(len(X), dtype=torch.int64)
+        places_db = torch.cat([X, idx.float().unsqueeze(1)], dim=1)
+
         print('Creando versión ONNX del searcher')
-        self._export_searcher(searcher, searcher_onnx_path, test_image_path)
+        self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
 
         print('Creando versión ONNX del postprocess')
         postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
@@ -488,7 +496,7 @@ class Pipeline_Yolo_CVNet_SG():
 
         onnx.save(model, extractor_onnx_path)
 
-    def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str):
+    def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str, places_db):
         detections, img, orig_size = self.detect(test_image_path)
 
         if isinstance(detections, (list, tuple)):
@@ -501,9 +509,7 @@ class Pipeline_Yolo_CVNet_SG():
         classes = torch.from_numpy(classes)
         descriptors = torch.from_numpy(descriptors)
 
-        X = descriptors.clone()
-        idx = torch.arange(len(X), dtype=torch.int64)
-        places_db = torch.cat([X, idx.float().unsqueeze(1)], dim=1)
+        db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
 
         torch.onnx.export(
             searcher,
@@ -512,7 +518,7 @@ class Pipeline_Yolo_CVNet_SG():
                 scores,
                 classes,
                 descriptors,
-                places_db,
+                db,
             ),
             searcher_onnx_path,
             opset_version=16,
