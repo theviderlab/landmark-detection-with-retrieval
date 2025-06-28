@@ -9,6 +9,7 @@ import os
 import cv2
 from typing import List
 import json
+import numpy as np
 
 import onnxruntime as ort
 import onnx
@@ -140,6 +141,9 @@ class Pipeline_Yolo_CVNet_SG():
         print('Creando versión ONNX del searcher')
         self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
 
+        print('Instanciando el searcher')
+        self.searcher = ort.InferenceSession(searcher_onnx_path, providers=["CPUExecutionProvider"])
+
         print('Creando versión ONNX del postprocess')
         postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
         self._export_postprocess(self.postprocess_module, postprocess_onnx_path)
@@ -220,8 +224,31 @@ class Pipeline_Yolo_CVNet_SG():
             extractor_inputs[self.extractor.get_inputs()[2].name] = orig_size
         return self.extractor.run(None, extractor_inputs)
 
-    def search(self, results, orig_size=None):
-        pass
+    def search(self, places_db, boxes, descriptors, orig_size=None):
+        """Asigna un ``place_id`` a cada caja mediante búsqueda de similitud."""
+
+        boxes_np = boxes.detach().cpu().numpy() if isinstance(boxes, torch.Tensor) else boxes
+        desc_np = descriptors.detach().cpu().numpy() if isinstance(descriptors, torch.Tensor) else descriptors
+        db_np = places_db.detach().cpu().numpy() if isinstance(places_db, torch.Tensor) else places_db
+
+        num_boxes = boxes_np.shape[0]
+        dummy_scores = np.zeros((num_boxes,), dtype=np.float32)
+        dummy_classes = np.zeros((num_boxes,), dtype=np.int64)
+
+        search_inputs = {
+            self.searcher.get_inputs()[0].name: boxes_np,
+            self.searcher.get_inputs()[1].name: dummy_scores,
+            self.searcher.get_inputs()[2].name: dummy_classes,
+            self.searcher.get_inputs()[3].name: desc_np,
+            self.searcher.get_inputs()[4].name: db_np,
+        }
+
+        results = list(self.searcher.run(None, search_inputs))
+        results.append(desc_np)
+        if orig_size is not None:
+            results.append(orig_size)
+
+        return results
 
     def postprocess(self, results, orig_size):
         """Escala las cajas al tamaño original de la imagen."""
