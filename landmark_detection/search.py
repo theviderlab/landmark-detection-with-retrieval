@@ -28,6 +28,7 @@ class Similarity_Search(nn.Module):
             más pequeñas del mismo ``landmark``. Si ``None`` no se aplica
             este filtrado.
         """
+        super(Similarity_Search, self).__init__()
 
         if not 0.0 <= min_votes <= 1.0:
             raise ValueError("min_votes debe estar entre 0 y 1")
@@ -126,6 +127,12 @@ class Similarity_Search(nn.Module):
 
         if self.join_boxes:
             boxes_out, scores_out, classes_out = self._join_boxes_by_class(boxes_out, scores_out, classes_out)
+
+        boxes_out = torch.as_tensor(boxes_out)
+        scores_out = torch.as_tensor(scores_out)
+        classes_out = torch.as_tensor(
+            [-1 if c is None else c for c in classes_out], dtype=torch.int64
+        )
 
         return boxes_out, scores_out, classes_out
 
