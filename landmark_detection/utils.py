@@ -127,13 +127,12 @@ def load_names_from_yaml(file_path):
     names_list = [value for _, value in sorted_items]
     return names_list
 
-
 def show_similarity_search(
+    query_img_path,
+    class_names_path,
     final_boxes,
     final_scores,
     final_classes,
-    query_img_path,
-    class_names_path,
 ):
     """Visualiza los resultados de :class:`Similarity_Search`.
 
