@@ -85,54 +85,56 @@ class Similarity_Search(nn.Module):
         sims = torch.matmul(Q, X.T)  # (D, N)
         top_sims, top_idx = torch.topk(sims, self.topk, dim=1)
 
-        results: list[int | None] = []
-        for sim_row, idx_row in zip(top_sims, top_idx):
-            mask = sim_row >= self.min_sim
-            if not torch.any(mask):
-                results.append(None)
-                continue
-            places = idx[idx_row[mask]]
-            unique_ids, counts = torch.unique(places, return_counts=True)
-            majority_index = counts.argmax()
-            majority = unique_ids[majority_index]
-            vote_ratio = counts[majority_index].float() / mask.sum().float()
-            if vote_ratio < self.min_votes:
-                results.append(None)
-                continue
-            results.append(int(majority.item()))
+        # IDs de los vecinos en topk para cada detección
+        top_ids = idx[top_idx]
+        mask_sim = top_sims >= self.min_sim  # (D, K)
+
+        # Conteo de votos por clase usando one-hot
+        num_classes = int(idx.max().item()) + 1
+        one_hot_ids = torch.nn.functional.one_hot(
+            top_ids, num_classes=num_classes
+        ).to(dtype=torch.float32)
+        vote_counts = (one_hot_ids * mask_sim.unsqueeze(-1)).sum(dim=1)
+
+        majority_counts, majority_ids = vote_counts.max(dim=1)
+        valid_votes = mask_sim.sum(dim=1).to(dtype=torch.float32)
+        vote_ratio = torch.where(
+            valid_votes > 0, majority_counts / valid_votes, torch.zeros_like(valid_votes)
+        )
+
+        valid = (majority_counts > 0) & (vote_ratio >= self.min_votes)
+        results = torch.where(valid, majority_ids, torch.full_like(majority_ids, -1))
 
         if isinstance(final_boxes, np.ndarray):
             boxes_tensor = torch.from_numpy(final_boxes)
         else:
             boxes_tensor = final_boxes
 
-        if self.remove_inner_boxes is not None and len(results) > 1:
-            results = self._remove_overlapping_boxes(boxes_tensor, results, self.remove_inner_boxes)
+        if self.remove_inner_boxes is not None and boxes_tensor.size(0) > 1:
+            res_list = self._remove_overlapping_boxes(
+                boxes_tensor, results.tolist(), self.remove_inner_boxes
+            )
+            results = torch.tensor(
+                [-1 if r is None else r for r in res_list], dtype=torch.long
+            )
 
-        # Obtener puntuación de similitud para la clase asignada
-        sim_scores: list[float] = []
-        for r, sim_row, idx_row in zip(results, top_sims, top_idx):
-            if r is None:
-                sim_scores.append(0.0)
-                continue
-            mask = idx[idx_row] == r
-            if torch.any(mask):
-                sim_scores.append(float(sim_row[mask].max().item()))
-            else:
-                sim_scores.append(0.0)
+        match = (top_ids == results.unsqueeze(1)) & mask_sim
+        sim_scores = torch.where(match, top_sims, torch.zeros_like(top_sims)).max(dim=1).values
 
-        boxes_out = boxes_tensor.detach().cpu().numpy() if isinstance(boxes_tensor, torch.Tensor) else np.asarray(boxes_tensor)
-        scores_out = np.asarray(sim_scores, dtype=np.float32)
-        classes_out = list(results)
+        boxes_out = boxes_tensor
+        scores_out = sim_scores
+        classes_out = results
 
         if self.join_boxes:
-            boxes_out, scores_out, classes_out = self._join_boxes_by_class(boxes_out, scores_out, classes_out)
-
-        boxes_out = torch.as_tensor(boxes_out)
-        scores_out = torch.as_tensor(scores_out)
-        classes_out = torch.as_tensor(
-            [-1 if c is None else c for c in classes_out], dtype=torch.int64
-        )
+            b_np = boxes_out.detach().cpu().numpy()
+            s_np = scores_out.detach().cpu().numpy()
+            c_list = [int(c) if c >= 0 else None for c in classes_out.tolist()]
+            b_np, s_np, c_list = self._join_boxes_by_class(b_np, s_np, c_list)
+            boxes_out = torch.as_tensor(b_np)
+            scores_out = torch.as_tensor(s_np)
+            classes_out = torch.tensor(
+                [-1 if c is None else c for c in c_list], dtype=torch.long
+            )
 
         return boxes_out, scores_out, classes_out
 
