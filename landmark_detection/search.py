@@ -39,7 +39,7 @@ class Similarity_Search(nn.Module):
         self.remove_inner_boxes = remove_inner_boxes
         self.join_boxes = join_boxes
 
-    def __call__(
+    def forward(
         self,
         final_boxes: torch.Tensor | np.ndarray,
         final_scores: torch.Tensor | np.ndarray,
