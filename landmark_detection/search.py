@@ -44,8 +44,7 @@ class Similarity_Search(nn.Module):
         final_scores: torch.Tensor | np.ndarray,
         final_classes: torch.Tensor | np.ndarray,
         descriptors: torch.Tensor | np.ndarray,
-        X: torch.Tensor,
-        idx: torch.Tensor,
+        places_db: torch.Tensor | np.ndarray,
     ) -> tuple:
         """Asigna un ``landmark`` a cada detección mediante búsqueda de similitud.
 
@@ -59,10 +58,9 @@ class Similarity_Search(nn.Module):
             Clases de detección (no utilizadas).
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
-        X : torch.Tensor
-            Descriptores de la base de datos con shape ``(N, C)``.
-        idx : torch.Tensor
-            Índice ``landmark`` asociado a cada fila de ``X`` con shape ``(N,)``.
+        places_db : torch.Tensor | numpy.ndarray
+            Tensor que concatena los descriptores de la base de datos y los
+            ``place_id`` asociados con shape ``(N, C + 1)``.
 
         Returns
         -------
@@ -71,12 +69,15 @@ class Similarity_Search(nn.Module):
         """
 
         Q = descriptors if isinstance(descriptors, torch.Tensor) else torch.tensor(descriptors)
+        DB = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
         if Q.ndim != 2:
             raise ValueError("descriptors debe tener shape (D, C)")
-        if X.ndim != 2:
-            raise ValueError("X debe tener shape (N, C)")
-        if X.shape[0] != len(idx):
-            raise ValueError("idx debe tener la misma longitud que X")
+        if DB.ndim != 2 or DB.shape[1] < 2:
+            raise ValueError("places_db debe tener shape (N, C+1)")
+
+        X = DB[:, :-1]
+        idx = DB[:, -1].long()
+
         if Q.shape[1] != X.shape[1]:
             raise ValueError("Dimensión C de Q y X debe coincidir")
 

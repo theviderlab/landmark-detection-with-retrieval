@@ -236,7 +236,7 @@ class Pipeline_Yolo_CVNet_SG():
             results = [r for r in results]
         return results
     
-    def run(self, image):
+    def run(self, image, places_db):
         """Ejecuta la inferencia completa empleando el modelo ONNX unido."""
         if isinstance(image, str):
             img_bgr = cv2.imread(image)
@@ -252,7 +252,10 @@ class Pipeline_Yolo_CVNet_SG():
 
         img_tensor = torch.as_tensor(img_bgr)
 
-        pipeline_inputs = {self.pipeline.get_inputs()[0].name: img_tensor.numpy()}
+        pipeline_inputs = {
+            self.pipeline.get_inputs()[0].name: img_tensor.numpy(),
+            self.pipeline.get_inputs()[1].name: places_db,
+        }
         results = self.pipeline.run(None, pipeline_inputs)
 
         if self.orig_size is not None and len(results) > 0:
@@ -297,6 +300,34 @@ class Pipeline_Yolo_CVNet_SG():
             preprocess_onnx_path,
             **export_args,
         )
+
+        # Añadir bypass para places_db
+        model = onnx.load(preprocess_onnx_path)
+        graph = model.graph
+
+        places_input = helper.make_tensor_value_info(
+            name="places_db",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.input.append(places_input)
+
+        places_node = helper.make_node(
+            "Identity",
+            inputs=["places_db"],
+            outputs=["places_db_out"],
+            name="Identity_ExposePlacesPre",
+        )
+        graph.node.append(places_node)
+
+        places_output = helper.make_tensor_value_info(
+            name="places_db_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.output.append(places_output)
+
+        onnx.save(model, preprocess_onnx_path)
 
     def _export_detector(self, detector):
         # Exportar YOLO a ONNX
@@ -355,6 +386,29 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(orig_output)
 
+        # Bypass places_db
+        places_input = helper.make_tensor_value_info(
+            name="places_db",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.input.append(places_input)
+
+        places_node = helper.make_node(
+            "Identity",
+            inputs=["places_db"],
+            outputs=["places_db_det_out"],
+            name="Identity_ExposePlacesDet",
+        )
+        graph.node.append(places_node)
+
+        places_output = helper.make_tensor_value_info(
+            name="places_db_det_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.output.append(places_output)
+
         onnx.save(model, detector_onnx_path)
 
         return detector_onnx_path
@@ -409,6 +463,29 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(orig_output)
 
+        # Bypass places_db
+        places_input = helper.make_tensor_value_info(
+            name="places_db",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.input.append(places_input)
+
+        places_node = helper.make_node(
+            "Identity",
+            inputs=["places_db"],
+            outputs=["places_db_out"],
+            name="Identity_ExposePlacesExt",
+        )
+        graph.node.append(places_node)
+
+        places_output = helper.make_tensor_value_info(
+            name="places_db_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.output.append(places_output)
+
         onnx.save(model, extractor_onnx_path)
 
     def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str):
@@ -426,6 +503,7 @@ class Pipeline_Yolo_CVNet_SG():
 
         X = descriptors.clone()
         idx = torch.arange(len(X), dtype=torch.int64)
+        places_db = torch.cat([X, idx.float().unsqueeze(1)], dim=1)
 
         torch.onnx.export(
             searcher,
@@ -434,8 +512,7 @@ class Pipeline_Yolo_CVNet_SG():
                 scores,
                 classes,
                 descriptors,
-                X,
-                idx,
+                places_db,
             ),
             searcher_onnx_path,
             opset_version=16,
@@ -444,8 +521,7 @@ class Pipeline_Yolo_CVNet_SG():
                 "scores",
                 "classes",
                 "descriptors",
-                "X",
-                "idx",
+                "places_db",
             ],
             output_names=["boxes", "scores", "classes"],
             dynamic_axes={
@@ -453,8 +529,7 @@ class Pipeline_Yolo_CVNet_SG():
                 "scores": {0: "num_boxes"},
                 "classes": {0: "num_boxes"},
                 "descriptors": {0: "num_boxes"},
-                "X": {0: "db_size"},
-                "idx": {0: "db_size"},
+                "places_db": {0: "db_size"},
             },
             do_constant_folding=True,
         )
@@ -516,14 +591,17 @@ class Pipeline_Yolo_CVNet_SG():
         postprocess_onnx = compose.add_prefix(postprocess_onnx, "post_")
 
         # Preprocess -> Detector
-        det_input_name = detector_onnx.graph.input[0].name
-        det_orig_name = detector_onnx.graph.input[1].name
+        det_inputs = [i.name for i in detector_onnx.graph.input]
+        det_input_name = det_inputs[0]
+        det_orig_name = det_inputs[1]
+        det_places_name = det_inputs[2]
         merged_pd = compose.merge_models(
             preprocess_onnx,
             detector_onnx,
             io_map=[
                 ("image", det_input_name),
                 ("orig_size", det_orig_name),
+                ("places_db_out", det_places_name),
             ],
         )
 
@@ -537,19 +615,35 @@ class Pipeline_Yolo_CVNet_SG():
                 (det_outputs[1], ext_inputs[1]),  # images_out -> image
                 (det_outputs[0], ext_inputs[0]),  # output0 -> detections
                 (det_outputs[2], ext_inputs[2]),  # orig_size_det_out -> orig_size
+                (det_outputs[3], ext_inputs[3]),  # places_db_det_out -> places_db
             ],
         )
 
-        # Extractor -> Postprocess
+        # Extractor -> Searcher
         ext_outputs = [o.name for o in extractor_onnx.graph.output]
+        ser_inputs = [i.name for i in searcher_onnx.graph.input]
+        merged_pdes = compose.merge_models(
+            merged_pde,
+            searcher_onnx,
+            io_map=[
+                (ext_outputs[0], ser_inputs[0]),
+                (ext_outputs[1], ser_inputs[1]),
+                (ext_outputs[2], ser_inputs[2]),
+                (ext_outputs[3], ser_inputs[3]),
+                (ext_outputs[5], ser_inputs[4]),
+            ],
+        )
+
+        # Searcher -> Postprocess
+        ser_outputs = [o.name for o in searcher_onnx.graph.output]
         post_inputs = [i.name for i in postprocess_onnx.graph.input]
         merged_model = compose.merge_models(
-            merged_pde,
+            merged_pdes,
             postprocess_onnx,
             io_map=[
-                (ext_outputs[0], post_inputs[0]),
-                (ext_outputs[1], post_inputs[1]),
-                (ext_outputs[2], post_inputs[2]),
+                (ser_outputs[0], post_inputs[0]),
+                (ser_outputs[1], post_inputs[1]),
+                (ser_outputs[2], post_inputs[2]),
                 (ext_outputs[3], post_inputs[3]),
                 (ext_outputs[4], post_inputs[4]),
             ],
