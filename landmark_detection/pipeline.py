@@ -10,6 +10,7 @@ import cv2
 from typing import List
 import json
 import numpy as np
+import pickle
 
 import onnxruntime as ort
 import onnx
@@ -114,18 +115,23 @@ class Pipeline_Yolo_CVNet_SG():
             min_votes = min_votes,
             remove_inner_boxes = remove_inner_boxes,
             join_boxes = join_boxes,
-        ).eval()
+        )
 
         ## PIPELINE      
-        # Construir la ruta absoluta a test_images/test.jpg dentro de este módulo
-        test_image_path = os.path.join(module_dir, "test_images", "test.jpg")
+        # Construir la ruta absoluta a los datos de prueba dentro de este módulo
+        test_image_path = os.path.join(module_dir, "test_data", "test.jpg")
+        test_places_db_path = os.path.join(module_dir, "test_data", "test_places_db.pkl")
+
+        with open(test_places_db_path, 'rb') as f:
+            places_db = pickle.load(f)
+        places_db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db, dtype=torch.float32)
 
         print('Creando versión ONNX del preprocess')
         preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
         self._export_preprocess(self.preprocess_module, preprocess_onnx_path, test_image_path)
 
         print('Creando versión ONNX del extractor')
-        self._export_extractor(extractor, extractor_onnx_path, test_image_path)
+        self._export_extractor(extractor, extractor_onnx_path, test_image_path, places_db)
 
         print('Instanciando el extractor')
         self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
@@ -134,9 +140,6 @@ class Pipeline_Yolo_CVNet_SG():
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
         _, _, _, descriptors, _ = self.extract(img, detections, orig_size)
-        X = torch.from_numpy(descriptors)
-        idx = torch.arange(len(X), dtype=torch.int64)
-        places_db = torch.cat([X, idx.float().unsqueeze(1)], dim=1)
 
         print('Creando versión ONNX del searcher')
         self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
@@ -205,7 +208,7 @@ class Pipeline_Yolo_CVNet_SG():
         orig_size = orig_size.to(dtype=torch.float32).numpy()
         return processed.numpy(), orig_size
     
-    def detect(self, image):
+    def detect(self, image, places_db):
 
         # Preprocesar imagen
         img, orig_size = self.preprocess(image)
@@ -214,6 +217,8 @@ class Pipeline_Yolo_CVNet_SG():
         detector_inputs = {self.detector.get_inputs()[0].name: img}
         if len(self.detector.get_inputs()) > 1:
             detector_inputs[self.detector.get_inputs()[1].name] = orig_size
+        detector_inputs[self.detector.get_inputs()[2].name] = places_db
+
         detections = self.detector.run(None, detector_inputs)
 
         return detections, img, orig_size
@@ -448,8 +453,8 @@ class Pipeline_Yolo_CVNet_SG():
 
         return detector_onnx_path
 
-    def _export_extractor(self, extractor, extractor_onnx_path: str, test_image_path: str):
-        detections, img, _ = self.detect(test_image_path)
+    def _export_extractor(self, extractor, extractor_onnx_path: str, test_image_path: str, places_db):
+        detections, img, _ = self.detect(test_image_path, places_db)
 
         img_tensor = torch.from_numpy(img)
         if isinstance(detections, (list, tuple)):
