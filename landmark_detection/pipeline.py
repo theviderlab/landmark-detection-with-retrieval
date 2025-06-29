@@ -603,8 +603,6 @@ class Pipeline_Yolo_CVNet_SG():
         model = onnx.load(searcher_onnx_path)
         graph = model.graph
 
-        print(graph.input) # debug
-        print(graph.output) # debug
 
         orig_input = helper.make_tensor_value_info(
             name="orig_size",
