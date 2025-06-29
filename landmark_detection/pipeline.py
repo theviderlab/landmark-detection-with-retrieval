@@ -163,11 +163,6 @@ class Pipeline_Yolo_CVNet_SG():
             pipeline_onnx_path,
         )
 
-        if os.path.exists(preprocess_onnx_path):
-            os.remove(preprocess_onnx_path)
-        if os.path.exists(postprocess_onnx_path):
-            os.remove(postprocess_onnx_path)
-
         # Instanciar pipeline
         print('Instanciando el pipeline completo')
         self.pipeline = ort.InferenceSession(pipeline_onnx_path, providers=["CPUExecutionProvider"])
@@ -572,13 +567,14 @@ class Pipeline_Yolo_CVNet_SG():
                 "descriptors",
                 "places_db",
             ],
-            output_names=["boxes", "scores", "classes"],
+            output_names=["boxes_out", "scores", "classes"],
             dynamic_axes={
                 "boxes": {0: "num_boxes"},
-                "scores": {0: "num_boxes"},
-                "classes": {0: "num_boxes"},
                 "descriptors": {0: "num_boxes"},
                 "places_db": {0: "db_size"},
+                "boxes_out": {0: "num_boxes"},
+                "scores": {0: "num_boxes"},
+                "classes": {0: "num_boxes"},
             },
             do_constant_folding=True,
         )
