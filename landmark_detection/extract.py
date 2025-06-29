@@ -113,20 +113,8 @@ class CVNet_SG(nn.Module):
             dtype=boxes_filt.dtype,
             device=boxes_filt.device
         )  # (1, 4)
-        full_score = torch.tensor(
-            [1.0],
-            dtype=scores_filt.dtype,
-            device=scores_filt.device
-        )  # (1,)
-        full_class = torch.tensor(
-            [-1],
-            dtype=classes_filt.dtype,
-            device=classes_filt.device
-        )  # (1,)
-
+        
         final_boxes   = torch.cat([full_box, boxes_filt], dim=0)    # (M+1, 4)
-        final_scores  = torch.cat([full_score, scores_filt], dim=0) # (M+1,)
-        final_classes = torch.cat([full_class, classes_filt], dim=0)# (M+1,)
 
         # Escalar todas las cajas según las escalas definidas
         scaled_boxes = self._scale_boxes(final_boxes, image.shape, self.scales)
@@ -146,7 +134,7 @@ class CVNet_SG(nn.Module):
 
         descriptors = F.normalize(descriptors, p=2, dim=1)
 
-        return final_boxes, final_scores, final_classes, descriptors
+        return final_boxes, descriptors
 
     def _decode_and_score(self, raw_pred: torch.Tensor):
         """
