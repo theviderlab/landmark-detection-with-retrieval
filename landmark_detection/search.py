@@ -42,8 +42,6 @@ class Similarity_Search(nn.Module):
     def forward(
         self,
         final_boxes: torch.Tensor | np.ndarray,
-        final_scores: torch.Tensor | np.ndarray,
-        final_classes: torch.Tensor | np.ndarray,
         descriptors: torch.Tensor | np.ndarray,
         places_db: torch.Tensor | np.ndarray,
     ) -> tuple:
@@ -53,10 +51,6 @@ class Similarity_Search(nn.Module):
         ----------
         final_boxes : torch.Tensor | numpy.ndarray
             Cajas detectadas por :meth:`Pipeline_Yolo_CVNet_SG.run`.
-        final_scores : torch.Tensor | numpy.ndarray
-            Confianza de detección (no utilizada).
-        final_classes : torch.Tensor | numpy.ndarray
-            Clases de detección (no utilizadas).
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
         places_db : torch.Tensor | numpy.ndarray
@@ -74,6 +68,7 @@ class Similarity_Search(nn.Module):
         if Q.ndim != 2:
             raise ValueError("descriptors debe tener shape (D, C)")
         if DB.ndim != 2 or DB.shape[1] < 2:
+            print(DB) # debug
             raise ValueError("places_db debe tener shape (N, C+1)")
 
         X = DB[:, :-1]
