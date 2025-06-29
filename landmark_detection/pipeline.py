@@ -25,31 +25,29 @@ class Pipeline_Yolo_CVNet_SG():
         extractor_onnx_file: str = "extractor.onnx",
         searcher_onnx_file: str = "searcher.onnx",
         pipeline_onnx_file: str = "pipeline.onnx",
-        image_dim: tuple[int] = (640, 640),
-        orig_size: tuple[int, int] | None = None,
+        image_dim: tuple[int] = (640, 640),                                                             # preprocess
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
                                       298,310,335,351,390,393,401,403,439,442,457,466,489,510,512,
-                                      514,524,530,531,543,546,554,565,573,580,587,588,591],
-        score_thresh: float = 0.10,
-        iou_thresh: float = 0.45,
-        scales: List[float] = [0.7071, 1.0, 1.4142],
-        mean: List[float] = [0.485, 0.456, 0.406],
-        std: List[float]  = [0.229, 0.224, 0.225],
-        rgem_pr: float   = 2.5,
-        rgem_size: int   = 5,
-        gem_p: float     = 4.6,
-        sgem_ps: float   = 10.0,
-        sgem_infinity: bool = False,
-        eps: float       = 1e-8,
-        topk: int = 5,
-        min_sim: float = 0.8,
-        min_votes: float = 0.0,
-        remove_inner_boxes: float | None = None,
-        join_boxes: bool = False,
+                                      514,524,530,531,543,546,554,565,573,580,587,588,591],             # extract
+        score_thresh: float = 0.10,                                                                     # extract
+        iou_thresh: float = 0.45,                                                                       # extract
+        scales: List[float] = [0.7071, 1.0, 1.4142],                                                    # extract
+        mean: List[float] = [0.485, 0.456, 0.406],                                                      # extract
+        std: List[float]  = [0.229, 0.224, 0.225],                                                      # extract
+        rgem_pr: float   = 2.5,                                                                         # extract
+        rgem_size: int   = 5,                                                                           # extract
+        gem_p: float     = 4.6,                                                                         # extract
+        sgem_ps: float   = 10.0,                                                                        # extract
+        sgem_infinity: bool = False,                                                                    # extract
+        eps: float       = 1e-8,                                                                        # extract
+        topk: int = 5,                                                                                  # search
+        min_sim: float = 0.8,                                                                           # search
+        min_votes: float = 0.0,                                                                         # search
+        remove_inner_boxes: float | None = None,                                                        # search
+        join_boxes: bool = False,                                                                       # search
     ):
         self.image_dim = image_dim
-        self.orig_size = orig_size
-        self.preprocess_module = PreprocessModule(image_dim, orig_size)
+        self.preprocess_module = PreprocessModule(image_dim)
         self.postprocess_module = PostprocessModule(image_dim)
 
         # Obtener el directorio donde está este archivo Python (el módulo)
@@ -205,19 +203,19 @@ class Pipeline_Yolo_CVNet_SG():
 
         # Obtener detecciones
         detector_inputs = {self.detector.get_inputs()[0].name: img}
-        if len(self.detector.get_inputs()) > 1:
-            detector_inputs[self.detector.get_inputs()[1].name] = orig_size
 
         if isinstance(places_db, torch.Tensor):
             places_np = places_db.detach().cpu().numpy().astype(np.float32)
         else:
             places_np = np.asarray(places_db, dtype=np.float32)
+        detector_inputs[self.detector.get_inputs()[1].name] = places_np
 
-        detector_inputs[self.detector.get_inputs()[2].name] = places_np
+        if len(self.detector.get_inputs()) > 1:
+            detector_inputs[self.detector.get_inputs()[2].name] = orig_size
 
         detections = self.detector.run(None, detector_inputs)
 
-        return detections, img, orig_size
+        return detections, img, places_db, orig_size
     
     def extract(self, image, detections, places_db, orig_size=None):
         extractor_inputs = {"detections": detections, "image": image}
@@ -226,8 +224,7 @@ class Pipeline_Yolo_CVNet_SG():
             places_np = places_db.detach().cpu().numpy().astype(np.float32)
         else:
             places_np = np.asarray(places_db, dtype=np.float32)
-
-        extractor_inputs[self.detector.get_inputs()[2].name] = places_np
+        extractor_inputs[self.extractor.get_inputs()[2].name] = places_np
 
         if orig_size is not None and len(self.extractor.get_inputs()) > 2:
             extractor_inputs[self.extractor.get_inputs()[3].name] = orig_size
@@ -292,11 +289,6 @@ class Pipeline_Yolo_CVNet_SG():
         else:
             img_bgr = image
 
-        orig_h, orig_w = img_bgr.shape[:2]
-
-        if self.orig_size is not None:
-            img_bgr = cv2.resize(img_bgr, self.orig_size)
-
         img_tensor = torch.as_tensor(img_bgr)
 
         if isinstance(places_db, torch.Tensor):
@@ -310,32 +302,18 @@ class Pipeline_Yolo_CVNet_SG():
         }
         results = self.pipeline.run(None, pipeline_inputs)
 
-        if self.orig_size is not None and len(results) > 0:
-            boxes = torch.as_tensor(results[0])
-            scale = torch.tensor(
-                [
-                    orig_w / float(self.orig_size[0]),
-                    orig_h / float(self.orig_size[1]),
-                    orig_w / float(self.orig_size[0]),
-                    orig_h / float(self.orig_size[1]),
-                ],
-                dtype=boxes.dtype,
-            )
-            results = list(results)
-            results[0] = (boxes * scale).numpy()
-
         return results
     
     def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
-        if self.orig_size is not None:
-            img_tensor = torch.zeros(
-                (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
-            )
-        else:
-            img_bgr = cv2.imread(test_image_path)
-            if img_bgr is None:
-                raise FileNotFoundError(f"No se encontró {test_image_path}")
-            img_tensor = torch.from_numpy(img_bgr)
+        # if self.orig_size is not None:
+        #     img_tensor = torch.zeros(
+        #         (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
+        #     )
+        # else:
+        img_bgr = cv2.imread(test_image_path)
+        if img_bgr is None:
+            raise FileNotFoundError(f"No se encontró {test_image_path}")
+        img_tensor = torch.from_numpy(img_bgr)
 
         export_args = dict(
             opset_version=16,
@@ -343,8 +321,8 @@ class Pipeline_Yolo_CVNet_SG():
             output_names=["image", "orig_size"],
             do_constant_folding=True,
         )
-        if self.orig_size is None:
-            export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
+        # if self.orig_size is None:
+        export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
 
         torch.onnx.export(
             preprocess_module,
@@ -398,6 +376,7 @@ class Pipeline_Yolo_CVNet_SG():
         model = onnx.load(detector_onnx_path)
         graph = model.graph
 
+        # Bypass image
         input_name = graph.input[0].name
         identity_node = helper.make_node(
             "Identity",
@@ -424,20 +403,6 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(new_output)
 
-        orig_input = helper.make_tensor_value_info(
-            name="orig_size",
-            elem_type=onnx.TensorProto.FLOAT,
-            shape=[2],
-        )
-        graph.input.append(orig_input)
-
-        orig_output = helper.make_tensor_value_info(
-            name="orig_size_det_out",
-            elem_type=onnx.TensorProto.FLOAT,
-            shape=[2],
-        )
-        graph.output.append(orig_output)
-
         # Bypass places_db
         places_input = helper.make_tensor_value_info(
             name="places_db",
@@ -461,12 +426,27 @@ class Pipeline_Yolo_CVNet_SG():
         )
         graph.output.append(places_output)
 
+        # Bypass orig_size
+        orig_input = helper.make_tensor_value_info(
+            name="orig_size",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.input.append(orig_input)
+
+        orig_output = helper.make_tensor_value_info(
+            name="orig_size_det_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[2],
+        )
+        graph.output.append(orig_output)
+
         onnx.save(model, detector_onnx_path)
 
         return detector_onnx_path
 
     def _export_extractor(self, extractor, extractor_onnx_path: str, test_image_path: str, places_db):
-        detections, img, _ = self.detect(test_image_path, places_db)
+        detections, img, places_db, _ = self.detect(test_image_path, places_db)
 
         img_tensor = torch.from_numpy(img)
         if isinstance(detections, (list, tuple)):
@@ -542,7 +522,7 @@ class Pipeline_Yolo_CVNet_SG():
         onnx.save(model, extractor_onnx_path)
 
     def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str, places_db):
-        detections, img, orig_size = self.detect(test_image_path, places_db)
+        detections, img, places_db, orig_size = self.detect(test_image_path, places_db)
 
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
@@ -663,8 +643,8 @@ class Pipeline_Yolo_CVNet_SG():
         # Preprocess -> Detector
         det_inputs = [i.name for i in detector_onnx.graph.input]
         det_input_name = det_inputs[0]
-        det_orig_name = det_inputs[1]
-        det_places_name = det_inputs[2]
+        det_orig_name = det_inputs[2]
+        det_places_name = det_inputs[1]
         merged_pd = compose.merge_models(
             preprocess_onnx,
             detector_onnx,
@@ -678,12 +658,13 @@ class Pipeline_Yolo_CVNet_SG():
         # Detector -> Extractor
         ext_inputs = [i.name for i in extractor_onnx.graph.input]
         det_outputs = [o.name for o in detector_onnx.graph.output]
+
         merged_pde = compose.merge_models(
             merged_pd,
             extractor_onnx,
             io_map=[
-                (det_outputs[1], ext_inputs[1]),  # images_out -> image
                 (det_outputs[0], ext_inputs[0]),  # output0 -> detections
+                (det_outputs[1], ext_inputs[1]),  # images_out -> image
                 (det_outputs[2], ext_inputs[2]),  # orig_size_det_out -> orig_size
                 (det_outputs[3], ext_inputs[3]),  # places_db_det_out -> places_db
             ],
