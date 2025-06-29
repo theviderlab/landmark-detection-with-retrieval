@@ -95,7 +95,7 @@ class CVNet_SG(nn.Module):
         classes_nms = classes_all[keep_nms]  # (R,)
 
         # Filtrar por umbral de score + pertenencia a allowed_classes
-        boxes_filt, scores_filt, classes_filt = self._filter_by_score_and_class(
+        boxes_filt = self._filter_by_score_and_class(
             boxes_nms, scores_nms, classes_nms
         )
 
@@ -103,8 +103,6 @@ class CVNet_SG(nn.Module):
         if boxes_filt.numel() == 0:
             device = boxes_all.device
             boxes_filt = torch.zeros((0, 4),  dtype=torch.float32, device=device)
-            scores_filt  = torch.zeros((0,),    dtype=torch.float32, device=device)
-            classes_filt = torch.zeros((0,),    dtype=torch.int64,   device=device)
 
         # Añadir siempre la “detección” de la imagen completa al inicio
         _, _, H, W = image.shape
@@ -113,7 +111,7 @@ class CVNet_SG(nn.Module):
             dtype=boxes_filt.dtype,
             device=boxes_filt.device
         )  # (1, 4)
-        
+
         final_boxes   = torch.cat([full_box, boxes_filt], dim=0)    # (M+1, 4)
 
         # Escalar todas las cajas según las escalas definidas
@@ -139,13 +137,13 @@ class CVNet_SG(nn.Module):
     def _decode_and_score(self, raw_pred: torch.Tensor):
         """
         Aplica:
-          - squeeze(0) y permute(1,0) para pasar de [1, 5+C, N] a [N, 5+C].
+          - squeeze(0) y permute(1,0) para pasar de [1, 4+C, N] a [N, 5+C].
           - Convertir cx,cy,w,h → x1,y1,x2,y2
           - Extraer cls_logits (N, C), sacar cls_conf y cls_ids.
         """
-        # raw_pred: [1, 5+C, N] → squeeze y permute → [N, 5+C]
+        # raw_pred: [1, 4+C, N] → squeeze y permute → [N, 5+C]
         assert raw_pred.shape[0] == 1, "Se espera batch_size == 1 en raw_pred"
-        x = raw_pred.squeeze(0).permute(1, 0)  # (N, 5 + C)
+        x = raw_pred.squeeze(0).permute(1, 0)  # (N, 4 + C)
 
         # Coordenadas centrales y tamaño
         cx = x[:, 0]
@@ -180,7 +178,7 @@ class CVNet_SG(nn.Module):
           - scores > score_thresh
           - classes esté dentro de self.allowed_cl
 
-        Y devuelve los tensores filtrados.
+        Y devuelve los boxes filtrados.
         """
         # 1) Máscara por umbral de score
         mask_score = scores > self.score_thresh    # (N,)
@@ -193,12 +191,10 @@ class CVNet_SG(nn.Module):
         # 3) Máscara combinada
         final_mask = mask_score & mask_cls  # ambos (N,)
 
-        # 4) Aplicar máscara a cada tensor
+        # 4) Aplicar máscara a boxes
         boxes_filt   = boxes[final_mask]    # (K',4)
-        scores_filt  = scores[final_mask]   # (K',)
-        classes_filt = classes[final_mask]  # (K',)
 
-        return boxes_filt, scores_filt, classes_filt
+        return boxes_filt
 
     def _scale_boxes(
         self,

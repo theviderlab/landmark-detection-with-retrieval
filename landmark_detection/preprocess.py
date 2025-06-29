@@ -5,24 +5,15 @@ import torch.nn.functional as F
 class PreprocessModule(nn.Module):
     """Prepara la imagen para el detector."""
 
-    def __init__(self, image_dim: tuple[int], orig_size: tuple[int, int] | None = None):
+    def __init__(self, image_dim: tuple[int]):
         super().__init__()
         self.image_dim = image_dim
-        if orig_size is not None:
-            self.register_buffer(
-                "fixed_orig_size",
-                torch.tensor([float(orig_size[0]), float(orig_size[1])], dtype=torch.float32),
-            )
-        else:
-            self.fixed_orig_size = None
 
-    def forward(self, img_bgr: torch.Tensor, orig_size: torch.Tensor | None = None):
-        if self.fixed_orig_size is not None:
-            orig_size = self.fixed_orig_size
-        elif orig_size is None:
-            h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
-            w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
-            orig_size = torch.stack([w, h])
+    def forward(self, img_bgr: torch.Tensor):
+        h = torch.tensor(img_bgr.shape[0], dtype=torch.float32)
+        w = torch.tensor(img_bgr.shape[1], dtype=torch.float32)
+        orig_size = torch.stack([w, h])
+
         img_rgb = img_bgr.permute(2, 0, 1).float()
         img_rgb = img_rgb[[2, 1, 0], ...]  # BGR -> RGB
         img_rgb = img_rgb.unsqueeze(0)
