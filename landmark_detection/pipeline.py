@@ -599,7 +599,7 @@ class Pipeline_Yolo_CVNet_SG():
             do_constant_folding=True,
         )
 
-        # Añadir bypass para orig_size
+        # Añadir bypass para orig_size y descriptors
         model = onnx.load(searcher_onnx_path)
         graph = model.graph
 
@@ -625,6 +625,21 @@ class Pipeline_Yolo_CVNet_SG():
             shape=[2],
         )
         graph.output.append(orig_output)
+
+        desc_node = helper.make_node(
+            "Identity",
+            inputs=["descriptors"],
+            outputs=["descriptors_out"],
+            name="Identity_ExposeDescriptors",
+        )
+        graph.node.append(desc_node)
+
+        desc_output = helper.make_tensor_value_info(
+            name="descriptors_out",
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, None],
+        )
+        graph.output.append(desc_output)
 
         onnx.save(model, searcher_onnx_path)
         
@@ -717,9 +732,6 @@ class Pipeline_Yolo_CVNet_SG():
         ext_outputs = [o.name for o in extractor_onnx.graph.output]
         ser_inputs = [i.name for i in searcher_onnx.graph.input]
 
-        print(ext_outputs) # debug
-        print(ser_inputs) # debug
-
         merged_pdes = compose.merge_models(
             merged_pde,
             searcher_onnx,
@@ -742,8 +754,8 @@ class Pipeline_Yolo_CVNet_SG():
                 (ser_outputs[0], post_inputs[0]),
                 (ser_outputs[1], post_inputs[1]),
                 (ser_outputs[2], post_inputs[2]),
-                (ext_outputs[3], post_inputs[3]),
-                (ext_outputs[4], post_inputs[4]),
+                (ser_outputs[3], post_inputs[3]),
+                (ser_outputs[4], post_inputs[4]),
             ],
         )
 

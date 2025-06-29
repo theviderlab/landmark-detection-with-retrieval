@@ -170,8 +170,9 @@ class Similarity_Search(nn.Module):
         same_lbl = (labels[:, None] == labels[None, :]) & (labels[:, None] >= 0)
         mask_pair = same_lbl & (overlap >= thr)
 
-        eye = torch.eye(n, dtype=torch.bool, device=boxes.device)
-        mask_pair = mask_pair & ~eye
+        idx_range = torch.arange(n, device=boxes.device)
+        non_diag = idx_range[:, None] != idx_range[None, :]
+        mask_pair = mask_pair & non_diag
 
         bigger_i = area_i > area_j
         remove_i = (mask_pair & bigger_i).any(dim=1)
