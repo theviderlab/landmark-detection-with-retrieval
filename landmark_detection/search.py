@@ -27,6 +27,7 @@ class Similarity_Search(nn.Module):
             Umbral para descartar cajas más grandes que se solapan con otras
             más pequeñas del mismo ``landmark``. Si ``None`` no se aplica
             este filtrado.
+        join_boxes : bool, optional
         """
         super(Similarity_Search, self).__init__()
 
@@ -41,7 +42,7 @@ class Similarity_Search(nn.Module):
 
     def forward(
         self,
-        final_boxes: torch.Tensor | np.ndarray,
+        boxes: torch.Tensor | np.ndarray,
         descriptors: torch.Tensor | np.ndarray,
         places_db: torch.Tensor | np.ndarray,
     ) -> tuple:
@@ -49,7 +50,7 @@ class Similarity_Search(nn.Module):
 
         Parameters
         ----------
-        final_boxes : torch.Tensor | numpy.ndarray
+        boxes : torch.Tensor | numpy.ndarray
             Cajas detectadas por :meth:`Pipeline_Yolo_CVNet_SG.run`.
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
@@ -100,10 +101,10 @@ class Similarity_Search(nn.Module):
         valid = (majority_counts > 0) & (vote_ratio >= self.min_votes)
         results = torch.where(valid, majority_ids, torch.full_like(majority_ids, -1))
 
-        if isinstance(final_boxes, np.ndarray):
-            boxes_tensor = torch.from_numpy(final_boxes)
+        if isinstance(boxes, np.ndarray):
+            boxes_tensor = torch.from_numpy(boxes)
         else:
-            boxes_tensor = final_boxes
+            boxes_tensor = boxes
 
         if self.remove_inner_boxes is not None and boxes_tensor.size(0) > 1:
             results = self._remove_overlapping_boxes(

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.ops import nms, roi_align
+from torchvision.ops import nms, roi_pool
 from typing import List
 from landmark_detection.backbone import CVNet
 from landmark_detection.pooling import SuperGlobalExtractor
@@ -9,7 +9,7 @@ from landmark_detection.pooling import SuperGlobalExtractor
 class CVNet_SG(nn.Module):
     """
     Versión ONNX‐exportable sin bucles Python pesados:
-      - raw_pred: [1, 5 + C, N]
+      - raw_pred: [1, 4 + C, N]
       - image:    [1, 3, H, W]
     Devuelve:
       - scaled_boxes:  Tensor float32 de shape (M+1, K, 4)
@@ -295,13 +295,13 @@ class CVNet_SG(nn.Module):
         rois = torch.cat([batch_indices, boxes_flat], dim=1)  # → (M*K, 5)
 
         # 3) Aplicar RoiAlign de golpe sobre `image` (1,3,H,W)
-        crops = roi_align(
+        crops = roi_pool(
             image,           # (1, 3, H, W)
             rois,            # (M*K, 5)
             output_size=(224, 224),
             spatial_scale=1.0,
-            sampling_ratio=-1,
-            aligned=True
+            # sampling_ratio=-1,
+            # aligned=True
         )  # → (M*K, 3, 224, 224)
 
         return crops  # (M*K, 3, 224, 224)
