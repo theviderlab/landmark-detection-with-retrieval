@@ -17,7 +17,7 @@ import onnx
 from onnx import compose
 from onnx import helper
 
-class Pipeline_Yolo_CVNet_SG():
+class Pipeline_Landmark_Detection():
 
     def __init__(
         self,
@@ -25,150 +25,29 @@ class Pipeline_Yolo_CVNet_SG():
         extractor_onnx_file: str = "extractor.onnx",
         searcher_onnx_file: str = "searcher.onnx",
         pipeline_onnx_file: str = "pipeline.onnx",
-        image_dim: tuple[int] = (640, 640),                                                             # preprocess
+        image_dim: tuple[int] = (640, 640),                                                             # detection-preprocess
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
                                       298,310,335,351,390,393,401,403,439,442,457,466,489,510,512,
-                                      514,524,530,531,543,546,554,565,573,580,587,588,591],             # extract
-        score_thresh: float = 0.10,                                                                     # extract
-        iou_thresh: float = 0.45,                                                                       # extract
-        scales: List[float] = [0.7071, 1.0, 1.4142],                                                    # extract
-        mean: List[float] = [0.485, 0.456, 0.406],                                                      # extract
-        std: List[float]  = [0.229, 0.224, 0.225],                                                      # extract
-        rgem_pr: float   = 2.5,                                                                         # extract
-        rgem_size: int   = 5,                                                                           # extract
-        gem_p: float     = 4.6,                                                                         # extract
-        sgem_ps: float   = 10.0,                                                                        # extract
-        sgem_infinity: bool = False,                                                                    # extract
-        eps: float       = 1e-8,                                                                        # extract
-        topk: int = 5,                                                                                  # search
-        min_sim: float = 0.8,                                                                           # search
-        min_votes: float = 0.0,                                                                         # search
-        remove_inner_boxes: float | None = None,                                                        # search
-        join_boxes: bool = False,                                                                       # search
+                                      514,524,530,531,543,546,554,565,573,580,587,588,591],             # detection-postprocess
+        score_thresh: float = 0.10,                                                                     # detection-postprocess
+        iou_thresh: float = 0.45,                                                                       # detection-postprocess
+        scales: list[float] = [0.7071, 1.0, 1.4142],                                                    # extraction-preprocess
+        mean: list[float] = [0.485, 0.456, 0.406],                                                      # extraction-preprocess
+        std: list[float]  = [0.229, 0.224, 0.225],                                                      # extraction-preprocess
+        rgem_pr: float   = 2.5,                                                                         # pooling
+        rgem_size: int   = 5,                                                                           # pooling
+        gem_p: float     = 4.6,                                                                         # pooling
+        sgem_ps: float   = 10.0,                                                                        # pooling
+        sgem_infinity: bool = False,                                                                    # pooling
+        eps: float       = 1e-8,                                                                        # pooling
+        topk: int = 5,                                                                                  # search-postprocess
+        min_sim: float = 0.8,                                                                           # search-postprocess
+        min_votes: float = 0.0,                                                                         # search-postprocess
+        remove_inner_boxes: float | None = None,                                                        # search-postprocess
+        join_boxes: bool = False,                                                                       # search-postprocess
     ):
-        self.image_dim = image_dim
-        self.preprocess_module = PreprocessModule(image_dim)
-        self.postprocess_module = PostprocessModule(image_dim)
-
-        # Obtener el directorio donde está este archivo Python (el módulo)
-        module_dir = os.path.dirname(os.path.abspath(__file__))
-
-        ## DETECTOR
-        if not os.path.isabs(detector_file) and not os.path.exists(detector_file):
-            # Construir la ruta absoluta dentro de este módulo
-            detector_path = os.path.join(module_dir, "models", detector_file)
-        else:
-            detector_path = detector_file
-
-        detector_file_ext = os.path.splitext(detector_path)[-1].lower()
-        # Si detector_file es .pt crea .onnx
-        if detector_file_ext == ".pt":
-            # Instanciar el detector de objetos
-            print('Creando versión ONNX del detector')
-            detector_pt = YOLO(detector_path)
-            detector_onnx_path = self._export_detector(detector_pt)
-        elif detector_file_ext == ".onnx":
-            detector_onnx_path = detector_path
-        else:
-            raise ValueError(f"Extensión no soportada para detector_file: {detector_file_ext}")
-        
-        # Instanciar detector
-        print('Instanciando el detector')
-        self.detector = ort.InferenceSession(detector_onnx_path, providers=["CPUExecutionProvider"])
-
-        ## EXTRACTOR
-        # Si no existe el archivo .onnx se crea
-        if not os.path.isabs(extractor_onnx_file) and not os.path.exists(extractor_onnx_file):
-            # Construir la ruta absoluta dentro de este módulo
-            extractor_onnx_path = os.path.join(module_dir, "models", extractor_onnx_file)
-        else:
-            extractor_onnx_path = extractor_onnx_file
-        
-        extractor = CVNet_SG(
-            allowed_classes = allowed_classes,
-            score_thresh = score_thresh,
-            iou_thresh = iou_thresh,
-            scales = scales,
-            mean = mean,
-            std = std,
-            rgem_pr = rgem_pr,
-            rgem_size = rgem_size,
-            gem_p = gem_p,
-            sgem_ps = sgem_ps,
-            sgem_infinity = sgem_infinity,
-            eps = eps
-        ).eval()
-
-        ## SEARCHER
-        # Si no existe el archivo .onnx se crea
-        if not os.path.isabs(searcher_onnx_file) and not os.path.exists(searcher_onnx_file):
-            # Construir la ruta absoluta dentro de este módulo
-            searcher_onnx_path = os.path.join(module_dir, "models", searcher_onnx_file)
-        else:
-            searcher_onnx_path = searcher_onnx_file
-
-        searcher = Similarity_Search(
-            topk = topk,
-            min_sim = min_sim,
-            min_votes = min_votes,
-            remove_inner_boxes = remove_inner_boxes,
-            join_boxes = join_boxes,
-        )
-
-        ## PIPELINE      
-        # Construir la ruta absoluta a los datos de prueba dentro de este módulo
-        test_image_path = os.path.join(module_dir, "test_data", "test.jpg")
-        test_places_db_path = os.path.join(module_dir, "test_data", "test_places_db.pkl")
-
-        with open(test_places_db_path, 'rb') as f:
-            places_db = pickle.load(f)
-        places_db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db, dtype=torch.float32)
-
-        print('Creando versión ONNX del preprocess')
-        preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
-        self._export_preprocess(self.preprocess_module, preprocess_onnx_path, test_image_path)
-
-        print('Creando versión ONNX del extractor')
-        self._export_extractor(extractor, extractor_onnx_path, test_image_path, places_db)
-
-        print('Instanciando el extractor')
-        self.extractor = ort.InferenceSession(extractor_onnx_path, providers=["CPUExecutionProvider"])
-
-        print('Creando versión ONNX del searcher')
-        self._export_searcher(searcher, searcher_onnx_path, test_image_path, places_db)
-
-        print('Instanciando el searcher')
-        self.searcher = ort.InferenceSession(searcher_onnx_path, providers=["CPUExecutionProvider"])
-
-        print('Creando versión ONNX del postprocess')
-        postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
-        self._export_postprocess(self.postprocess_module, postprocess_onnx_path)
-
-        print('Creando versión ONNX del pipeline completo')
-        # Si no existe el archivo .onnx se crea
-        if not os.path.isabs(pipeline_onnx_file) and not os.path.exists(pipeline_onnx_file):
-            # Construir la ruta absoluta dentro de este módulo
-            pipeline_onnx_path = os.path.join(module_dir, "models", pipeline_onnx_file)
-        else:
-            pipeline_onnx_path = pipeline_onnx_file
-
-        self._export_pipeline(
-            preprocess_onnx_path,
-            detector_onnx_path,
-            extractor_onnx_path,
-            searcher_onnx_path,
-            postprocess_onnx_path,
-            pipeline_onnx_path,
-        )
-
-        # Instanciar pipeline
-        print('Instanciando el pipeline completo')
-        self.pipeline = ort.InferenceSession(pipeline_onnx_path, providers=["CPUExecutionProvider"])
-
         # Almacenar parámetros de configuración
-        self.detector_file = detector_onnx_path
-        self.extractor_onnx_file = extractor_onnx_path
-        self.pipeline_onnx_file = pipeline_onnx_path
+        self.image_dim = image_dim
         self.allowed_classes = allowed_classes
         self.score_thresh = score_thresh
         self.iou_thresh = iou_thresh
@@ -180,105 +59,256 @@ class Pipeline_Yolo_CVNet_SG():
         self.gem_p = gem_p
         self.sgem_ps = sgem_ps
         self.sgem_infinity = sgem_infinity
-        self.eps = eps
+        self.eps = eps  
+        self.topk = topk
+        self.min_sim = min_sim
+        self.min_votes = min_votes
+        self.remove_inner_boxes = remove_inner_boxes
+        self.join_boxes = join_boxes
 
-    def preprocess(self, image):
-        """Carga y normaliza la imagen."""
+        # Cargar los datos de prueba
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        test_image_path = os.path.join(module_dir, "test_data", "test.jpg")
+        test_places_db_path = os.path.join(module_dir, "test_data", "test_places_db.pkl")
+
+        with open(test_places_db_path, 'rb') as f:
+            places_db = pickle.load(f)
+        places_db = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db, dtype=torch.float32)
+
+        # Preprocess
+
+        print('Creando versión ONNX del preprocess')
+        self.preprocess_onnx_path = os.path.join(module_dir, "models", "preprocess.onnx")
+        self.preprocess_module = PreprocessModule(self.image_dim)
+        self._export_preprocess(self.preprocess_module, self.preprocess_onnx_path, test_image_path)
+
+        print('Instanciando el preprocessor')
+        self.preprocessor = ort.InferenceSession(self.preprocess_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Detector
+
+        if not os.path.isabs(detector_file) and not os.path.exists(detector_file):
+            # Construir la ruta absoluta dentro de este módulo
+            detector_path = os.path.join(module_dir, "models", detector_file)
+        else:
+            detector_path = detector_file
+
+        detector_file_ext = os.path.splitext(detector_path)[-1].lower()
+        if detector_file_ext == ".pt": # Si detector_file es .pt crea .onnx
+            print('Creando versión ONNX del detector')
+            detector_pt = YOLO(detector_path)
+            self.detector_onnx_path = self._export_detector(detector_pt)
+        elif detector_file_ext == ".onnx":
+            self.detector_onnx_path = detector_path
+        else:
+            raise ValueError(f"Extensión no soportada para detector_file: {detector_file_ext}")
+
+        print('Instanciando el detector')
+        self.detector = ort.InferenceSession(self.detector_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Extractor
+
+        # Si no existe el archivo .onnx se crea
+        if not os.path.isabs(extractor_onnx_file) and not os.path.exists(extractor_onnx_file):
+            # Construir la ruta absoluta dentro de este módulo
+            self.extractor_onnx_path = os.path.join(module_dir, "models", extractor_onnx_file)
+        else:
+            self.extractor_onnx_path = extractor_onnx_file
+        
+        extractor = CVNet_SG(
+            allowed_classes = self.allowed_classes,
+            score_thresh = self.score_thresh,
+            iou_thresh = self.iou_thresh,
+            scales = self.scales,
+            mean = self.mean,
+            std = self.std,
+            rgem_pr = self.rgem_pr,
+            rgem_size = self.rgem_size,
+            gem_p = self.gem_p,
+            sgem_ps = self.sgem_ps,
+            sgem_infinity = self.sgem_infinity,
+            eps = self.eps
+        ).eval()
+
+        print('Creando versión ONNX del extractor')
+        self._export_extractor(extractor, self.extractor_onnx_path, test_image_path, places_db)
+
+        print('Instanciando el extractor')
+        self.extractor = ort.InferenceSession(self.extractor_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Searcher
+
+        # Si no existe el archivo .onnx se crea
+        if not os.path.isabs(searcher_onnx_file) and not os.path.exists(searcher_onnx_file):
+            # Construir la ruta absoluta dentro de este módulo
+            self.searcher_onnx_path = os.path.join(module_dir, "models", searcher_onnx_file)
+        else:
+            self.searcher_onnx_path = searcher_onnx_file
+
+        searcher = Similarity_Search(
+            topk = self.topk,
+            min_sim = self.min_sim,
+            min_votes = self.min_votes,
+            remove_inner_boxes = self.remove_inner_boxes,
+            join_boxes = self.join_boxes,
+        )
+
+        print('Creando versión ONNX del searcher')
+        self._export_searcher(searcher, self.searcher_onnx_path, test_image_path, places_db)
+
+        print('Instanciando el searcher')
+        self.searcher = ort.InferenceSession(self.searcher_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Postprocess
+
+        print('Creando versión ONNX del postprocess')
+        self.postprocess_onnx_path = os.path.join(module_dir, "models", "postprocess.onnx")
+        self.postprocess_module = PostprocessModule(self.image_dim)
+        self._export_postprocess(self.postprocess_module, self.postprocess_onnx_path, test_image_path, places_db)
+
+        print('Instanciando el postprocessor')
+        self.postprocessor = ort.InferenceSession(self.postprocess_onnx_path, providers=["CPUExecutionProvider"])
+
+        # Pipeline
+
+        print('Creando versión ONNX del pipeline completo')
+        # Si no existe el archivo .onnx se crea
+        if not os.path.isabs(pipeline_onnx_file) and not os.path.exists(pipeline_onnx_file):
+            # Construir la ruta absoluta dentro de este módulo
+            self.pipeline_onnx_path = os.path.join(module_dir, "models", pipeline_onnx_file)
+        else:
+            self.pipeline_onnx_path = pipeline_onnx_file
+
+        self._export_pipeline(
+            self.preprocess_onnx_path,
+            self.detector_onnx_path,
+            self.extractor_onnx_path,
+            self.searcher_onnx_path,
+            self.postprocess_onnx_path,
+            self.pipeline_onnx_path,
+        )
+
+        # Instanciar pipeline
+        print('Instanciando el pipeline completo')
+        self.pipeline = ort.InferenceSession(self.pipeline_onnx_path, providers=["CPUExecutionProvider"])
+
+    def preprocess(self, image, places_db):
+        """
+        Carga y normaliza la imagen.
+                
+        Args:
+            image (numpy.array | str): Imagen como Numpy array o un string con el path a la imagen.
+            places_db (list[float64]): Descriptores de la base de datos.
+
+        Returns:
+            image_proc (numpy.array[float32]): Imagen preprocesada.
+            orig_size (numpy.array[int]): Dimensiones de la imagen original.
+            places_db (list[float64]): Descriptores de la base de datos.
+        """
         if isinstance(image, str):
-            img_bgr = cv2.imread(image)
-            if img_bgr is None:
+            image_bgr = cv2.imread(image)
+            if image_bgr is None:
                 raise FileNotFoundError(f"No se encontró la imagen en {image}")
-            img_tensor = torch.from_numpy(img_bgr)
         else:
-            img_tensor = torch.as_tensor(image)
-
-        processed, orig_size = self.preprocess_module(img_tensor)
-        orig_size = orig_size.to(dtype=torch.float32).numpy()
-        return processed.numpy(), orig_size
-    
-    def detect(self, image, places_db):
-
-        # Preprocesar imagen
-        img, orig_size = self.preprocess(image)
-
-        # Obtener detecciones
-        detector_inputs = {self.detector.get_inputs()[0].name: img}
+            image_bgr = np.asarray(image, dtype=np.float32)
 
         if isinstance(places_db, torch.Tensor):
             places_np = places_db.detach().cpu().numpy().astype(np.float32)
         else:
             places_np = np.asarray(places_db, dtype=np.float32)
-        detector_inputs[self.detector.get_inputs()[1].name] = places_np
 
-        if len(self.detector.get_inputs()) > 1:
-            detector_inputs[self.detector.get_inputs()[2].name] = orig_size
-
-        detections = self.detector.run(None, detector_inputs)
-
-        return detections, img, places_db, orig_size
+        preprocessor_inputs = {"image_bgr": image_bgr, "places_db": places_np}
+        return self.preprocessor.run(None, preprocessor_inputs)
     
-    def extract(self, image, detections, places_db, orig_size=None):
-        extractor_inputs = {"detections": detections, "image": image}
+    def detect(self, image_proc, places_db, orig_size):
+        """
+        Realiza la detección de objetos sobre la imagen.
+                
+        Args:
+            image_proc (numpy.array): Imagen preprocesada.
+            places_db (list[float64]): Descriptores de la base de datos.
+            orig_size (numpy.array[int]): Dimensiones de la imagen original.
 
+        Returns:
+            detections (numpy.array[float32]): Detecciones [1, 4 + C, N].
+            image_proc (numpy.array[float32]): Imagen preprocesada (bypass).
+            places_db (list[float64]): Descriptores de la base de datos (bypass).
+            orig_size (list[int]): Dimensiones de la imagen original (bypass).
+        """
         if isinstance(places_db, torch.Tensor):
             places_np = places_db.detach().cpu().numpy().astype(np.float32)
         else:
             places_np = np.asarray(places_db, dtype=np.float32)
-        extractor_inputs[self.extractor.get_inputs()[2].name] = places_np
 
-        if orig_size is not None and len(self.extractor.get_inputs()) > 2:
-            extractor_inputs[self.extractor.get_inputs()[3].name] = orig_size
+        detector_inputs = {"images": image_proc, "places_db": places_np, "orig_size": orig_size}
+        return self.detector.run(None, detector_inputs)
+    
+    def extract(self, detections, image_proc, places_db, orig_size):
+        """
+        Crea los embeddings sobre las detecciones.
+                
+        Args:
+            detections (list[float]): Detecciones [1, 4 + C, N].
+            image_proc (numpy.array): Imagen preprocesada.
+            places_db (list[float64]): Descriptores de la base de datos.
+            orig_size (numpy.array[int]): Dimensiones de la imagen original.
 
+        Returns:
+            boxes (numpy.array[float32]): Cajas de los objetos detectados.
+            descriptors (numpy.array[float32]): Descriptores de los objetos detectados.
+            places_db (list[float64]): Descriptores de la base de datos (bypass).
+            orig_size (list[int]): Dimensiones de la imagen original (bypass).
+        """
+        if isinstance(places_db, torch.Tensor):
+            places_np = places_db.detach().cpu().numpy().astype(np.float32)
+        else:
+            places_np = np.asarray(places_db, dtype=np.float32)
+
+        extractor_inputs = {"detections": detections, "image": image_proc, "places_db": places_np, "orig_size": orig_size}
         return self.extractor.run(None, extractor_inputs)
 
-    def search(self, places_db, boxes, descriptors, orig_size=None):
-        """Asigna un ``place_id`` a cada caja mediante búsqueda de similitud."""
+    def search(self, boxes, descriptors, places_db, orig_size):
+        """
+        Realiza la búsqueda de los objetos detectados en la base de datos.
+                
+        Args:
+            boxes (numpy.array): Cajas de los objetos detectados.
+            descriptors (numpy.array): Descriptores de los objetos detectados.
+            places_db (list[float64]): Descriptores de la base de datos (bypass).
+            orig_size (list[int]): Dimensiones de la imagen original (bypass).
 
-        boxes_np = boxes.detach().cpu().numpy() if isinstance(boxes, torch.Tensor) else boxes
-        desc_np = (
-            descriptors.detach().cpu().numpy().astype(np.float32)
-            if isinstance(descriptors, torch.Tensor)
-            else np.asarray(descriptors, dtype=np.float32)
-        )
-        db_np = (
-            places_db.detach().cpu().numpy().astype(np.float32)
-            if isinstance(places_db, torch.Tensor)
-            else np.asarray(places_db, dtype=np.float32)
-        )
+        Returns: 
+            boxes_out (numpy.array[float32]): Cajas con lugares identificados.
+            scores_out (numpy.array[float32]): Similitudes de los lugares identificados.
+            classes_out (list[int64]): Lugares identificados.
+            orig_size (list[int]): Dimensiones de la imagen original (bypass).
+        """
+        if isinstance(places_db, torch.Tensor):
+            places_np = places_db.detach().cpu().numpy().astype(np.float32)
+        else:
+            places_np = np.asarray(places_db, dtype=np.float32)
 
-        search_inputs = {
-            self.searcher.get_inputs()[0].name: boxes_np,
-            self.searcher.get_inputs()[3].name: desc_np,
-            self.searcher.get_inputs()[4].name: db_np,
-        }
+        searcher_inputs = {"boxes": boxes, "descriptors": descriptors, "places_db": places_np, "orig_size": orig_size}
+        return self.searcher.run(None, searcher_inputs)
 
-        results = list(self.searcher.run(None, search_inputs))
-        results.append(desc_np)
-        if orig_size is not None:
-            results.append(orig_size)
+    def postprocess(self, boxes, scores, classes, orig_size):
+        """
+        Realiza el reescalado de las cajas al tamaño de la imagen original.
+                
+        Args:
+            boxes (numpy.array[float32]): Cajas con lugares identificados.
+            scores (numpy.array[float32]): Similitudes de los lugares identificados.
+            classes (list[int64]): Lugares identificados.
+            orig_size (list[int]): Dimensiones de la imagen original (bypass).
 
-        return results
+        Returns: 
+            final_boxes (numpy.array[float32]): Cajas con lugares identificados.
+            final_scores (numpy.array[float32]): Similitudes de los lugares identificados.
+            final_classes (list[int64]): Lugares identificados.
+        """
 
-    def postprocess(self, results, orig_size):
-        """Escala las cajas al tamaño original de la imagen."""
-        results = list(results)
-        if len(results) > 0:
-            boxes = torch.as_tensor(results[0])
-            scores = torch.as_tensor(results[1])
-            classes = torch.as_tensor(results[2])
-            descriptors = torch.as_tensor(results[3])
-            orig = torch.tensor([
-                orig_size[0],
-                orig_size[1],
-            ], dtype=torch.float32)
-            (
-                results[0],
-                results[1],
-                results[2],
-                results[3],
-            ) = self.postprocess_module(boxes, scores, classes, descriptors, orig)
-            results = [r for r in results]
-        return results
+        postprocessor_inputs = {"final_boxes": boxes, "final_scores": scores, "final_classes": classes, "orig_size": orig_size}
+        return self.postprocessor.run(None, postprocessor_inputs)
     
     def run(self, image, places_db):
         """Ejecuta la inferencia completa empleando el modelo ONNX unido."""
@@ -304,12 +334,7 @@ class Pipeline_Yolo_CVNet_SG():
 
         return results
     
-    def _export_preprocess(self, preprocess_module, preprocess_onnx_path: str, test_image_path: str):
-        # if self.orig_size is not None:
-        #     img_tensor = torch.zeros(
-        #         (self.orig_size[1], self.orig_size[0], 3), dtype=torch.uint8
-        #     )
-        # else:
+    def _export_preprocess(self, preprocessor, preprocess_onnx_path: str, test_image_path: str):
         img_bgr = cv2.imread(test_image_path)
         if img_bgr is None:
             raise FileNotFoundError(f"No se encontró {test_image_path}")
@@ -321,11 +346,10 @@ class Pipeline_Yolo_CVNet_SG():
             output_names=["image", "orig_size"],
             do_constant_folding=True,
         )
-        # if self.orig_size is None:
         export_args["dynamic_axes"] = {"image_bgr": {0: "h", 1: "w"}}
 
         torch.onnx.export(
-            preprocess_module,
+            preprocessor,
             img_tensor,
             preprocess_onnx_path,
             **export_args,
@@ -446,9 +470,10 @@ class Pipeline_Yolo_CVNet_SG():
         return detector_onnx_path
 
     def _export_extractor(self, extractor, extractor_onnx_path: str, test_image_path: str, places_db):
-        detections, img, places_db, _ = self.detect(test_image_path, places_db)
+        image_proc, orig_size, places_db = self.preprocess(test_image_path, places_db)
+        detections, image_proc, places_db, orig_size = self.detect(image_proc, places_db, orig_size)
 
-        img_tensor = torch.from_numpy(img)
+        img_tensor = torch.from_numpy(image_proc)
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
         detections_tensor = torch.from_numpy(detections)
@@ -458,13 +483,11 @@ class Pipeline_Yolo_CVNet_SG():
             extractor,
             (detections_tensor, img_tensor),
             extractor_onnx_path,
-            opset_version=16,                   # OPS versión >= 11 para NMS
-            input_names=["detections", "image"],           # nombre del input
+            opset_version=16, # OPS versión >= 11 para NMS
+            input_names=["detections", "image"],          
             output_names=["boxes", "descriptors"],
             dynamic_axes={
                 "boxes":        {0: "num_boxes"},
-                "scores":       {0: "num_boxes"},
-                "classes":      {0: "num_boxes"},
                 "descriptors":  {0: "num_boxes"}
             },
             do_constant_folding=True
@@ -522,12 +545,13 @@ class Pipeline_Yolo_CVNet_SG():
         onnx.save(model, extractor_onnx_path)
 
     def _export_searcher(self, searcher, searcher_onnx_path: str, test_image_path: str, places_db):
-        detections, img, places_db, orig_size = self.detect(test_image_path, places_db)
+        image_proc, orig_size, places_db = self.preprocess(test_image_path, places_db)
+        detections, image_proc, places_db, orig_size = self.detect(image_proc, places_db, orig_size)
 
         if isinstance(detections, (list, tuple)):
             detections = detections[0]
 
-        boxes, descriptors, places_db, _ = self.extract(img, detections, places_db, orig_size)
+        boxes, descriptors, places_db, orig_size = self.extract(detections, image_proc, places_db, orig_size)
 
         boxes = torch.from_numpy(boxes)
         descriptors = torch.from_numpy(descriptors)
@@ -559,7 +583,7 @@ class Pipeline_Yolo_CVNet_SG():
             do_constant_folding=True,
         )
 
-        # Añadir bypass para orig_size y descriptors
+        # Añadir bypass para orig_size
         model = onnx.load(searcher_onnx_path)
         graph = model.graph
 
@@ -588,19 +612,28 @@ class Pipeline_Yolo_CVNet_SG():
 
         onnx.save(model, searcher_onnx_path)
         
-    def _export_postprocess(self, postprocess_module, postprocess_onnx_path: str):
-        dummy_boxes = torch.zeros((1, 4), dtype=torch.float32)
-        dummy_scores = torch.zeros((1,), dtype=torch.float32)
-        dummy_classes = torch.zeros((1,), dtype=torch.int64)
-        dummy_orig = torch.tensor([float(self.image_dim[0]), float(self.image_dim[1])], dtype=torch.float32)
+    def _export_postprocess(self, postprocessor, postprocess_onnx_path: str, test_image_path: str, places_db):
+        image_proc, orig_size, places_db = self.preprocess(test_image_path, places_db)
+        detections, image_proc, places_db, orig_size = self.detect(image_proc, places_db, orig_size)
+
+        if isinstance(detections, (list, tuple)):
+            detections = detections[0]
+
+        boxes, descriptors, places_db, orig_size = self.extract(detections, image_proc, places_db, orig_size)
+        boxes_out, scores_out, classes_out, orig_size = self.search(boxes, descriptors, places_db, orig_size)
+
+        boxes_out = torch.from_numpy(boxes_out)
+        scores_out = torch.from_numpy(scores_out)
+        classes_out = torch.from_numpy(classes_out)
+        orig_size = torch.from_numpy(orig_size)
 
         torch.onnx.export(
-            postprocess_module,
+            postprocessor,
             (
-                dummy_boxes,
-                dummy_scores,
-                dummy_classes,
-                dummy_orig,
+                boxes_out,
+                scores_out,
+                classes_out,
+                orig_size,
             ),
             postprocess_onnx_path,
             opset_version=16,
@@ -628,7 +661,7 @@ class Pipeline_Yolo_CVNet_SG():
         postprocess_onnx_path: str,
         pipeline_onnx_path: str,
     ):
-        preprocess_onnx = onnx.load(preprocess_onnx_path)
+        preprocessor_onnx = onnx.load(preprocess_onnx_path)
         detector_onnx = onnx.load(detector_onnx_path)
         extractor_onnx = onnx.load(extractor_onnx_path)
         searcher_onnx = onnx.load(searcher_onnx_path)
@@ -642,16 +675,14 @@ class Pipeline_Yolo_CVNet_SG():
 
         # Preprocess -> Detector
         det_inputs = [i.name for i in detector_onnx.graph.input]
-        det_input_name = det_inputs[0]
-        det_orig_name = det_inputs[2]
-        det_places_name = det_inputs[1]
+        pre_outputs = [o.name for o in preprocessor_onnx.graph.output]
         merged_pd = compose.merge_models(
-            preprocess_onnx,
+            preprocessor_onnx,
             detector_onnx,
             io_map=[
-                ("image", det_input_name),
-                ("orig_size", det_orig_name),
-                ("places_db_out", det_places_name),
+                (pre_outputs[0], det_inputs[0]),
+                (pre_outputs[1], det_inputs[2]),
+                (pre_outputs[2], det_inputs[1]),
             ],
         )
 
