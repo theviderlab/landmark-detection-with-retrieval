@@ -51,7 +51,7 @@ class Similarity_Search(nn.Module):
         Parameters
         ----------
         boxes : torch.Tensor | numpy.ndarray
-            Cajas detectadas por :meth:`Pipeline_Yolo_CVNet_SG.run`.
+            Cajas detectadas por :meth:`Pipeline_Landmark_Detection.run`.
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
         places_db : torch.Tensor | numpy.ndarray
