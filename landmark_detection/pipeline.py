@@ -792,16 +792,45 @@ class Pipeline_Landmark_Detection():
         image_folder: str,
         df_pickle_path: str,
         descriptor_pickle_path: str,
+        image_place_ids: dict[str, int] | None = None,
+        return_places_db: bool = False,
         force_rebuild: bool = False,
         save_every: int = 500,
         min_area: float = 0.0,
         min_sim: float = 0.0,
-    ) -> Tuple[pd.DataFrame, np.ndarray]:
+    ) -> Tuple[pd.DataFrame, np.ndarray] | Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
         """Construye o actualiza una base de datos de descriptores.
 
         Este método procesa cada imagen de ``image_folder`` pasando solo por
         las etapas de ``preprocess`` → ``detect`` → ``extract`` para obtener los
         *embeddings* sin realizar la etapa de búsqueda.
+
+        Parameters
+        ----------
+        image_folder : str
+            Carpeta con las imágenes a procesar.
+        df_pickle_path : str
+            Ruta donde guardar/cargar el ``DataFrame`` con la información de las
+            detecciones.
+        descriptor_pickle_path : str
+            Ruta donde guardar/cargar la matriz de descriptores ``(N, C)``.
+        image_place_ids : dict[str, int] | None, optional
+            Mapeo desde nombre de imagen a su ``place_id``. Si se proporciona,
+            se generará la matriz ``places_db`` concatenando el ``place_id`` al
+            final de cada descriptor.
+        return_places_db : bool, optional
+            Si ``True`` la función devolverá también ``places_db``.
+        force_rebuild : bool, optional
+            Si ``True`` ignora los archivos en disco y vuelve a procesar todas
+            las imágenes.
+        save_every : int, optional
+            Número de imágenes a procesar antes de guardar los parciales en
+            disco.
+        min_area : float, optional
+            Área mínima (relativa a la imagen) que debe tener una detección para
+            considerarse.
+        min_sim : float, optional
+            Similaridad mínima para agrupar detecciones de una misma imagen.
         """
 
         if not os.path.isdir(image_folder):
@@ -952,6 +981,15 @@ class Pipeline_Landmark_Detection():
         pd.to_pickle(df_result, df_pickle_path)
         with open(descriptor_pickle_path, "wb") as f:
             pickle.dump(descriptors_final, f)
+
+        if return_places_db:
+            if image_place_ids is None:
+                ids = [-1] * len(df_result)
+            else:
+                ids = [image_place_ids.get(n, -1) for n in df_result["image_name"]]
+            ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
+            places_db = np.hstack([descriptors_final, ids_np]) if descriptors_final.size else ids_np
+            return df_result, descriptors_final, places_db
 
         return df_result, descriptors_final
 
