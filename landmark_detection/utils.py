@@ -46,7 +46,7 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
         if idx is None:
             class_name = "None"
         elif idx == -1:
-            class_name = "full image"
+            class_name = "No detected"
         else:
             class_name = class_names[idx]
         print(f"  Clase {idx} {class_name} @ {scores[i]:.2f} → [{x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}]")
@@ -88,7 +88,7 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
         )
         ax.add_patch(rect)
         if cls_idx == -1:
-            class_name = "full image"
+            class_name = "ND"
         else:
             class_name = class_names[cls_idx]
         ax.text(
