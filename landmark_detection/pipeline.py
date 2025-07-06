@@ -739,9 +739,12 @@ class Pipeline_Landmark_Detection():
     def to_json(self, json_path: str):
         """Guarda la configuración del pipeline en un archivo JSON."""
         config = {
-            "detector_file": self.detector_file,
-            "extractor_onnx_file": self.extractor_onnx_file,
-            "pipeline_onnx_file": self.pipeline_onnx_file,
+            "preprocess_onnx_path": self.preprocess_onnx_path,
+            "detector_onnx_path": self.detector_onnx_path,
+            "extractor_onnx_path": self.extractor_onnx_path,
+            "searcher_onnx_path": self.searcher_onnx_path,
+            "postprocess_onnx_path": self.postprocess_onnx_path,
+            "pipeline_onnx_path": self.pipeline_onnx_path,
             "image_dim": list(self.image_dim),
             "allowed_classes": self.allowed_classes,
             "score_thresh": self.score_thresh,
@@ -755,6 +758,11 @@ class Pipeline_Landmark_Detection():
             "sgem_ps": self.sgem_ps,
             "sgem_infinity": self.sgem_infinity,
             "eps": self.eps,
+            "topk": self.topk,
+            "min_sim": self.min_sim,
+            "min_votes": self.min_votes,
+            "remove_inner_boxes": self.remove_inner_boxes,
+            "join_boxes": self.join_boxes,
         }
 
         dir_name = os.path.dirname(json_path)
