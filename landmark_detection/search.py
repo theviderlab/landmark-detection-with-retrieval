@@ -51,7 +51,7 @@ class Similarity_Search(nn.Module):
         Parameters
         ----------
         boxes : torch.Tensor | numpy.ndarray
-            Cajas detectadas por :meth:`Pipeline_Yolo_CVNet_SG.run`.
+            Cajas detectadas por :meth:`Pipeline_Landmark_Detection.run`.
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
         places_db : torch.Tensor | numpy.ndarray
@@ -62,6 +62,7 @@ class Similarity_Search(nn.Module):
         -------
         tuple
             ``(boxes, sims, classes)`` tras la votación por mayoría.
+            Solo se devuelven las detecciones con una clase asignada.
         """
 
         Q = descriptors if isinstance(descriptors, torch.Tensor) else torch.tensor(descriptors)
@@ -122,6 +123,22 @@ class Similarity_Search(nn.Module):
             boxes_out, scores_out, classes_out = self._join_boxes_by_class(
                 boxes_out, scores_out, classes_out
             )
+
+        valid_mask = (
+            (classes_out >= 0)
+            & torch.isfinite(scores_out)
+            & torch.isfinite(boxes_out).all(dim=1)
+        )
+
+        if torch.any(valid_mask):
+            idx = valid_mask.nonzero(as_tuple=True)[0]
+            boxes_out = boxes_out.index_select(0, idx)
+            scores_out = scores_out.index_select(0, idx)
+            classes_out = classes_out.index_select(0, idx)
+        else:
+            boxes_out = boxes_out[:0]
+            scores_out = scores_out[:0]
+            classes_out = classes_out[:0]
 
         return boxes_out, scores_out, classes_out
 
