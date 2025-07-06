@@ -16,4 +16,6 @@ the post-processing stage can rescale the predictions correctly.
 `Pipeline_Landmark_Detection.build_image_database` can be used to generate this
 `places_db` tensor. When given a DataFrame mapping each image ``filename`` to
 its ``landmark_id`` the function concatenates the identifier to each descriptor
-and, optionally, returns the resulting `(N, C + 1)` matrix.
+and, optionally, returns the resulting `(N, C + 1)` matrix. If no mapping is
+provided, incremental ``image_id`` values will be assigned automatically when
+``return_places_db`` is ``True``.
