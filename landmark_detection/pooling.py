@@ -17,7 +17,7 @@ class SuperGlobalExtractor(nn.Module):
         eps: float       = 1e-8
     ):
         super(SuperGlobalExtractor, self).__init__()
-        self.rgem = RGEM_Batch(pr=rgem_pr, size=rgem_size)
+        self.rgem = RGEM_Batch(pr=rgem_pr, size=rgem_size, eps=eps)
         self.gem  = GEMp_Batch(p=gem_p, eps=eps)
         self.sgem = SGEM_Batch(ps=sgem_ps, infinity=sgem_infinity, eps=eps)
 

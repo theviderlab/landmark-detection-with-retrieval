@@ -13,7 +13,6 @@ class PostprocessModule(nn.Module):
         final_boxes: torch.Tensor,
         final_scores: torch.Tensor,
         final_classes: torch.Tensor,
-        descriptors: torch.Tensor,
         orig_size: torch.Tensor,
     ):
         scale = torch.stack(
@@ -25,4 +24,4 @@ class PostprocessModule(nn.Module):
             ]
         )
         scaled_boxes = final_boxes * scale
-        return scaled_boxes, final_scores, final_classes, descriptors
+        return scaled_boxes, final_scores, final_classes
