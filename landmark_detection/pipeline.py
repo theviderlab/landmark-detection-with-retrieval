@@ -994,7 +994,6 @@ class Pipeline_Landmark_Detection():
                 mapper = dict(zip(image_place_ids["filename"], image_place_ids["landmark_id"]))
                 ids = [mapper.get(n, -1) for n in df_result["image_name"]]
                 ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
-
             places_db = np.hstack([descriptors_final, ids_np]) if descriptors_final.size else ids_np
             return df_result, descriptors_final, places_db
 
