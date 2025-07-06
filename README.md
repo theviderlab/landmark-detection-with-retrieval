@@ -12,3 +12,8 @@ The model internally computes the `[w, h]` tensor from the input image using
 dynamic shape operations so it can be traced without constant folding. This
 size information is propagated through the detector and extractor so
 the post-processing stage can rescale the predictions correctly.
+
+`Pipeline_Landmark_Detection.build_image_database` can be used to generate this
+`places_db` tensor. When provided with a mapping from image name to
+``place_id`` the function concatenates the identifier to each descriptor and,
+optionally, returns the resulting `(N, C + 1)` matrix.
