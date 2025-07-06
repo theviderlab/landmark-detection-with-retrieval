@@ -792,7 +792,7 @@ class Pipeline_Landmark_Detection():
         image_folder: str,
         df_pickle_path: str,
         descriptor_pickle_path: str,
-        image_place_ids: dict[str, int] | None = None,
+        image_place_ids: pd.DataFrame | None = None,
         return_places_db: bool = False,
         force_rebuild: bool = False,
         save_every: int = 500,
@@ -814,10 +814,10 @@ class Pipeline_Landmark_Detection():
             detecciones.
         descriptor_pickle_path : str
             Ruta donde guardar/cargar la matriz de descriptores ``(N, C)``.
-        image_place_ids : dict[str, int] | None, optional
-            Mapeo desde nombre de imagen a su ``place_id``. Si se proporciona,
-            se generará la matriz ``places_db`` concatenando el ``place_id`` al
-            final de cada descriptor.
+        image_place_ids : pandas.DataFrame | None, optional
+            DataFrame con dos columnas: ``filename`` y ``landmark_id``. Si se
+            proporciona, se generará la matriz ``places_db`` concatenando el
+            ``landmark_id`` al final de cada descriptor.
         return_places_db : bool, optional
             Si ``True`` la función devolverá también ``places_db``.
         force_rebuild : bool, optional
@@ -984,10 +984,16 @@ class Pipeline_Landmark_Detection():
 
         if return_places_db:
             if image_place_ids is None:
-                ids = [-1] * len(df_result)
+                ids_np = np.full((len(df_result), 1), -1, dtype=np.float32)
             else:
-                ids = [image_place_ids.get(n, -1) for n in df_result["image_name"]]
-            ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
+                required_cols = {"filename", "landmark_id"}
+                if not required_cols.issubset(image_place_ids.columns):
+                    raise ValueError(
+                        "image_place_ids debe contener las columnas 'filename' y 'landmark_id'."
+                    )
+                mapper = dict(zip(image_place_ids["filename"], image_place_ids["landmark_id"]))
+                ids = [mapper.get(n, -1) for n in df_result["image_name"]]
+                ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
             places_db = np.hstack([descriptors_final, ids_np]) if descriptors_final.size else ids_np
             return df_result, descriptors_final, places_db
 

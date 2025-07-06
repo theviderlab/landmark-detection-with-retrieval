@@ -14,6 +14,6 @@ size information is propagated through the detector and extractor so
 the post-processing stage can rescale the predictions correctly.
 
 `Pipeline_Landmark_Detection.build_image_database` can be used to generate this
-`places_db` tensor. When provided with a mapping from image name to
-``place_id`` the function concatenates the identifier to each descriptor and,
-optionally, returns the resulting `(N, C + 1)` matrix.
+`places_db` tensor. When given a DataFrame mapping each image ``filename`` to
+its ``landmark_id`` the function concatenates the identifier to each descriptor
+and, optionally, returns the resulting `(N, C + 1)` matrix.
