@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.ops import nms, roi_align
+from torchvision.ops import nms, roi_pool
 from typing import List
 from landmark_detection.backbone import CVNet
 from landmark_detection.pooling import SuperGlobalExtractor
@@ -9,7 +9,7 @@ from landmark_detection.pooling import SuperGlobalExtractor
 class CVNet_SG(nn.Module):
     """
     Versión ONNX‐exportable sin bucles Python pesados:
-      - raw_pred: [1, 5 + C, N]
+      - raw_pred: [1, 4 + C, N]
       - image:    [1, 3, H, W]
     Devuelve:
       - scaled_boxes:  Tensor float32 de shape (M+1, K, 4)
@@ -24,7 +24,7 @@ class CVNet_SG(nn.Module):
     def __init__(
         self,
         allowed_classes: list[int] = [41,68,70,74,87,95,113,144,150,158,164,165,193,205,212,224,257,
-                                      298,310,335,351,354,390,393,401,403,439,442,457,466,489,510,512,
+                                      298,310,335,351,390,393,401,403,439,442,457,466,489,510,512,
                                       514,524,530,531,543,546,554,565,573,580,587,588,591],
         score_thresh: float = 0.10,
         iou_thresh: float = 0.45,
@@ -95,7 +95,7 @@ class CVNet_SG(nn.Module):
         classes_nms = classes_all[keep_nms]  # (R,)
 
         # Filtrar por umbral de score + pertenencia a allowed_classes
-        boxes_filt, scores_filt, classes_filt = self._filter_by_score_and_class(
+        boxes_filt = self._filter_by_score_and_class(
             boxes_nms, scores_nms, classes_nms
         )
 
@@ -103,8 +103,6 @@ class CVNet_SG(nn.Module):
         if boxes_filt.numel() == 0:
             device = boxes_all.device
             boxes_filt = torch.zeros((0, 4),  dtype=torch.float32, device=device)
-            scores_filt  = torch.zeros((0,),    dtype=torch.float32, device=device)
-            classes_filt = torch.zeros((0,),    dtype=torch.int64,   device=device)
 
         # Añadir siempre la “detección” de la imagen completa al inicio
         _, _, H, W = image.shape
@@ -113,20 +111,8 @@ class CVNet_SG(nn.Module):
             dtype=boxes_filt.dtype,
             device=boxes_filt.device
         )  # (1, 4)
-        full_score = torch.tensor(
-            [1.0],
-            dtype=scores_filt.dtype,
-            device=scores_filt.device
-        )  # (1,)
-        full_class = torch.tensor(
-            [-1],
-            dtype=classes_filt.dtype,
-            device=classes_filt.device
-        )  # (1,)
 
         final_boxes   = torch.cat([full_box, boxes_filt], dim=0)    # (M+1, 4)
-        final_scores  = torch.cat([full_score, scores_filt], dim=0) # (M+1,)
-        final_classes = torch.cat([full_class, classes_filt], dim=0)# (M+1,)
 
         # Escalar todas las cajas según las escalas definidas
         scaled_boxes = self._scale_boxes(final_boxes, image.shape, self.scales)
@@ -146,18 +132,18 @@ class CVNet_SG(nn.Module):
 
         descriptors = F.normalize(descriptors, p=2, dim=1)
 
-        return final_boxes, final_scores, final_classes, descriptors
+        return final_boxes, descriptors
 
     def _decode_and_score(self, raw_pred: torch.Tensor):
         """
         Aplica:
-          - squeeze(0) y permute(1,0) para pasar de [1, 5+C, N] a [N, 5+C].
+          - squeeze(0) y permute(1,0) para pasar de [1, 4+C, N] a [N, 5+C].
           - Convertir cx,cy,w,h → x1,y1,x2,y2
           - Extraer cls_logits (N, C), sacar cls_conf y cls_ids.
         """
-        # raw_pred: [1, 5+C, N] → squeeze y permute → [N, 5+C]
+        # raw_pred: [1, 4+C, N] → squeeze y permute → [N, 5+C]
         assert raw_pred.shape[0] == 1, "Se espera batch_size == 1 en raw_pred"
-        x = raw_pred.squeeze(0).permute(1, 0)  # (N, 5 + C)
+        x = raw_pred.squeeze(0).permute(1, 0)  # (N, 4 + C)
 
         # Coordenadas centrales y tamaño
         cx = x[:, 0]
@@ -192,7 +178,7 @@ class CVNet_SG(nn.Module):
           - scores > score_thresh
           - classes esté dentro de self.allowed_cl
 
-        Y devuelve los tensores filtrados.
+        Y devuelve los boxes filtrados.
         """
         # 1) Máscara por umbral de score
         mask_score = scores > self.score_thresh    # (N,)
@@ -205,12 +191,10 @@ class CVNet_SG(nn.Module):
         # 3) Máscara combinada
         final_mask = mask_score & mask_cls  # ambos (N,)
 
-        # 4) Aplicar máscara a cada tensor
+        # 4) Aplicar máscara a boxes
         boxes_filt   = boxes[final_mask]    # (K',4)
-        scores_filt  = scores[final_mask]   # (K',)
-        classes_filt = classes[final_mask]  # (K',)
 
-        return boxes_filt, scores_filt, classes_filt
+        return boxes_filt
 
     def _scale_boxes(
         self,
@@ -311,13 +295,13 @@ class CVNet_SG(nn.Module):
         rois = torch.cat([batch_indices, boxes_flat], dim=1)  # → (M*K, 5)
 
         # 3) Aplicar RoiAlign de golpe sobre `image` (1,3,H,W)
-        crops = roi_align(
+        crops = roi_pool(
             image,           # (1, 3, H, W)
             rois,            # (M*K, 5)
             output_size=(224, 224),
             spatial_scale=1.0,
-            sampling_ratio=-1,
-            aligned=True
+            # sampling_ratio=-1,
+            # aligned=True
         )  # → (M*K, 3, 224, 224)
 
         return crops  # (M*K, 3, 224, 224)
