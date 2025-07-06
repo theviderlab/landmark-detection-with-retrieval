@@ -27,7 +27,9 @@ class Similarity_Search(nn.Module):
             Umbral para descartar cajas más grandes que se solapan con otras
             más pequeñas del mismo ``landmark``. Si ``None`` no se aplica
             este filtrado.
+        join_boxes : bool, optional
         """
+        super(Similarity_Search, self).__init__()
 
         if not 0.0 <= min_votes <= 1.0:
             raise ValueError("min_votes debe estar entre 0 y 1")
@@ -38,166 +40,199 @@ class Similarity_Search(nn.Module):
         self.remove_inner_boxes = remove_inner_boxes
         self.join_boxes = join_boxes
 
-    def __call__(
+    def forward(
         self,
-        final_boxes: torch.Tensor | np.ndarray,
-        final_scores: torch.Tensor | np.ndarray,
-        final_classes: torch.Tensor | np.ndarray,
+        boxes: torch.Tensor | np.ndarray,
         descriptors: torch.Tensor | np.ndarray,
-        X: torch.Tensor,
-        idx: torch.Tensor,
+        places_db: torch.Tensor | np.ndarray,
     ) -> tuple:
         """Asigna un ``landmark`` a cada detección mediante búsqueda de similitud.
 
         Parameters
         ----------
-        final_boxes : torch.Tensor | numpy.ndarray
-            Cajas detectadas por :meth:`Pipeline_Yolo_CVNet_SG.run`.
-        final_scores : torch.Tensor | numpy.ndarray
-            Confianza de detección (no utilizada).
-        final_classes : torch.Tensor | numpy.ndarray
-            Clases de detección (no utilizadas).
+        boxes : torch.Tensor | numpy.ndarray
+            Cajas detectadas por :meth:`Pipeline_Landmark_Detection.run`.
         descriptors : torch.Tensor | numpy.ndarray
             Descriptores de las detecciones de la consulta.
-        X : torch.Tensor
-            Descriptores de la base de datos con shape ``(N, C)``.
-        idx : torch.Tensor
-            Índice ``landmark`` asociado a cada fila de ``X`` con shape ``(N,)``.
+        places_db : torch.Tensor | numpy.ndarray
+            Tensor que concatena los descriptores de la base de datos y los
+            ``place_id`` asociados con shape ``(N, C + 1)``.
 
         Returns
         -------
         tuple
             ``(boxes, sims, classes)`` tras la votación por mayoría.
+            Solo se devuelven las detecciones con una clase asignada.
         """
 
         Q = descriptors if isinstance(descriptors, torch.Tensor) else torch.tensor(descriptors)
+        DB = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
         if Q.ndim != 2:
             raise ValueError("descriptors debe tener shape (D, C)")
-        if X.ndim != 2:
-            raise ValueError("X debe tener shape (N, C)")
-        if X.shape[0] != len(idx):
-            raise ValueError("idx debe tener la misma longitud que X")
+        if DB.ndim != 2 or DB.shape[1] < 2:
+            print(DB) # debug
+            raise ValueError("places_db debe tener shape (N, C+1)")
+
+        X = DB[:, :-1]
+        idx = DB[:, -1].long()
+
         if Q.shape[1] != X.shape[1]:
             raise ValueError("Dimensión C de Q y X debe coincidir")
 
         sims = torch.matmul(Q, X.T)  # (D, N)
         top_sims, top_idx = torch.topk(sims, self.topk, dim=1)
 
-        results: list[int | None] = []
-        for sim_row, idx_row in zip(top_sims, top_idx):
-            mask = sim_row >= self.min_sim
-            if not torch.any(mask):
-                results.append(None)
-                continue
-            places = idx[idx_row[mask]]
-            unique_ids, counts = torch.unique(places, return_counts=True)
-            majority_index = counts.argmax()
-            majority = unique_ids[majority_index]
-            vote_ratio = counts[majority_index].float() / mask.sum().float()
-            if vote_ratio < self.min_votes:
-                results.append(None)
-                continue
-            results.append(int(majority.item()))
+        # IDs de los vecinos en topk para cada detección
+        top_ids = idx[top_idx]
+        mask_sim = top_sims >= self.min_sim  # (D, K)
 
-        if isinstance(final_boxes, np.ndarray):
-            boxes_tensor = torch.from_numpy(final_boxes)
+        # Conteo de votos por clase usando one-hot
+        num_classes = int(idx.max().item()) + 1
+        one_hot_ids = torch.nn.functional.one_hot(
+            top_ids, num_classes=num_classes
+        ).to(dtype=torch.float32)
+        vote_counts = (one_hot_ids * mask_sim.unsqueeze(-1)).sum(dim=1)
+
+        majority_counts, majority_ids = vote_counts.max(dim=1)
+        valid_votes = mask_sim.sum(dim=1).to(dtype=torch.float32)
+        vote_ratio = torch.where(
+            valid_votes > 0, majority_counts / valid_votes, torch.zeros_like(valid_votes)
+        )
+
+        valid = (majority_counts > 0) & (vote_ratio >= self.min_votes)
+        results = torch.where(valid, majority_ids, torch.full_like(majority_ids, -1))
+
+        if isinstance(boxes, np.ndarray):
+            boxes_tensor = torch.from_numpy(boxes)
         else:
-            boxes_tensor = final_boxes
+            boxes_tensor = boxes
 
-        if self.remove_inner_boxes is not None and len(results) > 1:
-            results = self._remove_overlapping_boxes(boxes_tensor, results, self.remove_inner_boxes)
+        if self.remove_inner_boxes is not None and boxes_tensor.size(0) > 1:
+            results = self._remove_overlapping_boxes(
+                boxes_tensor, results, self.remove_inner_boxes
+            )
 
-        # Obtener puntuación de similitud para la clase asignada
-        sim_scores: list[float] = []
-        for r, sim_row, idx_row in zip(results, top_sims, top_idx):
-            if r is None:
-                sim_scores.append(0.0)
-                continue
-            mask = idx[idx_row] == r
-            if torch.any(mask):
-                sim_scores.append(float(sim_row[mask].max().item()))
-            else:
-                sim_scores.append(0.0)
+        match = (top_ids == results.unsqueeze(1)) & mask_sim
+        sim_scores = torch.where(match, top_sims, torch.zeros_like(top_sims)).max(dim=1).values
 
-        boxes_out = boxes_tensor.detach().cpu().numpy() if isinstance(boxes_tensor, torch.Tensor) else np.asarray(boxes_tensor)
-        scores_out = np.asarray(sim_scores, dtype=np.float32)
-        classes_out = list(results)
+        boxes_out = boxes_tensor
+        scores_out = sim_scores
+        classes_out = results
 
         if self.join_boxes:
-            boxes_out, scores_out, classes_out = self._join_boxes_by_class(boxes_out, scores_out, classes_out)
+            boxes_out, scores_out, classes_out = self._join_boxes_by_class(
+                boxes_out, scores_out, classes_out
+            )
+
+        valid_mask = (
+            (classes_out >= 0)
+            & torch.isfinite(scores_out)
+            & torch.isfinite(boxes_out).all(dim=1)
+        )
+
+        if torch.any(valid_mask):
+            idx = valid_mask.nonzero(as_tuple=True)[0]
+            boxes_out = boxes_out.index_select(0, idx)
+            scores_out = scores_out.index_select(0, idx)
+            classes_out = classes_out.index_select(0, idx)
+        else:
+            boxes_out = boxes_out[:0]
+            scores_out = scores_out[:0]
+            classes_out = classes_out[:0]
 
         return boxes_out, scores_out, classes_out
 
     def _remove_overlapping_boxes(
         self,
         boxes: torch.Tensor,
-        labels: list[int | None],
+        labels: torch.Tensor,
         thr: float,
-    ) -> list[int | None]:
-        """Descarta las cajas grandes cuando se solapan demasiado con otras
+    ) -> torch.Tensor:
+        """Descarta cajas grandes que se solapan demasiado con otras
         más pequeñas del mismo ``landmark``.
 
         El solape se calcula como ``intersección / área_menor``.
         """
 
-        b = boxes.detach().cpu().numpy()
-        areas = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-        new_labels = list(labels)
-        n = len(labels)
-        for i in range(n):
-            if new_labels[i] is None:
-                continue
-            for j in range(i + 1, n):
-                if new_labels[j] is None or new_labels[i] != new_labels[j]:
-                    continue
-                x1 = max(b[i, 0], b[j, 0])
-                y1 = max(b[i, 1], b[j, 1])
-                x2 = min(b[i, 2], b[j, 2])
-                y2 = min(b[i, 3], b[j, 3])
-                w = max(0.0, x2 - x1)
-                h = max(0.0, y2 - y1)
-                inter = w * h
-                if inter == 0:
-                    continue
-                if areas[i] > areas[j]:
-                    bigger, smaller = i, j
-                else:
-                    bigger, smaller = j, i
-                if inter / areas[smaller] >= thr:
-                    new_labels[bigger] = None
-        return new_labels
+        n = boxes.size(0)
+        if n == 0:
+            return labels
+
+        boxes_f = boxes.to(dtype=torch.float32)
+        areas = (boxes_f[:, 2] - boxes_f[:, 0]) * (boxes_f[:, 3] - boxes_f[:, 1])
+
+        x1 = boxes_f[:, 0]
+        y1 = boxes_f[:, 1]
+        x2 = boxes_f[:, 2]
+        y2 = boxes_f[:, 3]
+
+        xi1 = torch.maximum(x1[:, None], x1[None, :])
+        yi1 = torch.maximum(y1[:, None], y1[None, :])
+        xi2 = torch.minimum(x2[:, None], x2[None, :])
+        yi2 = torch.minimum(y2[:, None], y2[None, :])
+
+        inter_w = torch.clamp(xi2 - xi1, min=0)
+        inter_h = torch.clamp(yi2 - yi1, min=0)
+        inter = inter_w * inter_h
+
+        area_i = areas[:, None]
+        area_j = areas[None, :]
+        area_small = torch.minimum(area_i, area_j)
+        overlap = torch.where(area_small > 0, inter / area_small, torch.zeros_like(inter))
+
+        same_lbl = (labels[:, None] == labels[None, :]) & (labels[:, None] >= 0)
+        mask_pair = same_lbl & (overlap >= thr)
+
+        idx_range = torch.arange(n, device=boxes.device)
+        non_diag = idx_range[:, None] != idx_range[None, :]
+        mask_pair = mask_pair & non_diag
+
+        bigger_i = area_i > area_j
+        remove_i = (mask_pair & bigger_i).any(dim=1)
+        remove_j = (mask_pair & ~bigger_i).any(dim=0)
+        remove = remove_i | remove_j
+
+        return torch.where(remove, torch.full_like(labels, -1), labels)
 
     def _join_boxes_by_class(
         self,
-        boxes: np.ndarray,
-        scores: np.ndarray,
-        labels: list[int | None],
-    ) -> tuple[np.ndarray, np.ndarray, list[int | None]]:
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Une las cajas de la misma clase en una sola que las englobe."""
 
-        new_boxes: list[list[float]] = []
-        new_scores: list[float] = []
-        new_labels: list[int | None] = []
+        valid = labels >= 0
+        if not torch.any(valid):
+            return boxes, scores, labels
 
-        processed: set[int] = set()
-        for i, lbl in enumerate(labels):
-            if lbl is None or i in processed:
-                continue
-            idxs = [j for j, l in enumerate(labels) if l == lbl]
-            processed.update(idxs)
-            cls_boxes = boxes[idxs]
-            x1 = float(cls_boxes[:, 0].min())
-            y1 = float(cls_boxes[:, 1].min())
-            x2 = float(cls_boxes[:, 2].max())
-            y2 = float(cls_boxes[:, 3].max())
-            new_boxes.append([x1, y1, x2, y2])
-            new_scores.append(float(scores[idxs].max()))
-            new_labels.append(lbl)
+        lbls = labels[valid]
+        num_cls = int(lbls.max().item()) + 1
+        idx = lbls.long()
 
-        for i, lbl in enumerate(labels):
-            if lbl is None:
-                new_boxes.append(boxes[i].tolist())
-                new_scores.append(float(scores[i]))
-                new_labels.append(None)
+        min_x1 = torch.full((num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device)
+        min_y1 = torch.full((num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device)
+        max_x2 = torch.full((num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device)
+        max_y2 = torch.full((num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device)
+        max_sc = torch.full((num_cls,), float("-inf"), dtype=scores.dtype, device=scores.device)
 
-        return np.asarray(new_boxes, dtype=boxes.dtype), np.asarray(new_scores, dtype=scores.dtype), new_labels
+        min_x1.scatter_reduce_(0, idx, boxes[valid, 0], reduce="amin", include_self=True)
+        min_y1.scatter_reduce_(0, idx, boxes[valid, 1], reduce="amin", include_self=True)
+        max_x2.scatter_reduce_(0, idx, boxes[valid, 2], reduce="amax", include_self=True)
+        max_y2.scatter_reduce_(0, idx, boxes[valid, 3], reduce="amax", include_self=True)
+        max_sc.scatter_reduce_(0, idx, scores[valid], reduce="amax", include_self=True)
+
+        new_boxes = torch.stack([min_x1, min_y1, max_x2, max_y2], dim=1)
+        new_scores = max_sc
+        new_labels = torch.arange(num_cls, device=labels.device, dtype=labels.dtype)
+
+        none_boxes = boxes[~valid]
+        none_scores = scores[~valid]
+        none_labels = labels[~valid]
+
+        if none_boxes.numel() > 0:
+            new_boxes = torch.cat([new_boxes, none_boxes], dim=0)
+            new_scores = torch.cat([new_scores, none_scores], dim=0)
+            new_labels = torch.cat([new_labels, none_labels], dim=0)
+
+        return new_boxes, new_scores, new_labels
