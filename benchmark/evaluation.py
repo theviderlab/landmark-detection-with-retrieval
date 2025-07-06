@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from benchmark.revisitop.evaluate import compute_map
+from landmark_detection.search import Similarity_Search
 
 def run_evaluation(
     df_result,
@@ -101,8 +102,8 @@ def run_evaluation(
     # relevancia.
     # --------------------------------------------------------------
     print('>> {}: Retrieval...'.format(dataset))
-    sim = np.dot(X, Q.T)
-    ranks = np.argsort(-sim, axis=0)
+    searcher = Similarity_Search()
+    ranks = searcher.compute_ranks(Q, X).cpu().numpy()
 
     # --------------------------------------------------------------
     # Transformamos los índices obtenidos en ``ranks`` para que hagan

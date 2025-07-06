@@ -40,6 +40,45 @@ class Similarity_Search(nn.Module):
         self.remove_inner_boxes = remove_inner_boxes
         self.join_boxes = join_boxes
 
+    def compute_ranks(
+        self,
+        query_descriptors: torch.Tensor | np.ndarray,
+        db_descriptors: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor:
+        """Devuelve el ranking de similitud para cada consulta.
+
+        Parameters
+        ----------
+        query_descriptors : torch.Tensor | numpy.ndarray
+            Descriptores de las consultas con shape ``(Q, C)``.
+        db_descriptors : torch.Tensor | numpy.ndarray
+            Descriptores de la base de datos con shape ``(N, C)``.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor ``(N, Q)`` con los índices ordenados por similitud.
+        """
+
+        Q = (
+            query_descriptors
+            if isinstance(query_descriptors, torch.Tensor)
+            else torch.tensor(query_descriptors)
+        )
+        X = (
+            db_descriptors
+            if isinstance(db_descriptors, torch.Tensor)
+            else torch.tensor(db_descriptors)
+        )
+
+        if Q.ndim != 2 or X.ndim != 2:
+            raise ValueError("Los descriptores deben ser tensores 2D")
+        if Q.shape[1] != X.shape[1]:
+            raise ValueError("Dimensión C de Q y X debe coincidir")
+
+        sims = torch.matmul(X, Q.T)
+        return torch.argsort(sims, dim=0, descending=True)
+
     def forward(
         self,
         boxes: torch.Tensor | np.ndarray,
