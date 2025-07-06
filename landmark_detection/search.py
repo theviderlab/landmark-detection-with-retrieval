@@ -40,25 +40,12 @@ class Similarity_Search(nn.Module):
         self.remove_inner_boxes = remove_inner_boxes
         self.join_boxes = join_boxes
 
-    def compute_ranks(
+    def _prepare_descriptors(
         self,
         query_descriptors: torch.Tensor | np.ndarray,
         db_descriptors: torch.Tensor | np.ndarray,
-    ) -> torch.Tensor:
-        """Devuelve el ranking de similitud para cada consulta.
-
-        Parameters
-        ----------
-        query_descriptors : torch.Tensor | numpy.ndarray
-            Descriptores de las consultas con shape ``(Q, C)``.
-        db_descriptors : torch.Tensor | numpy.ndarray
-            Descriptores de la base de datos con shape ``(N, C)``.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor ``(N, Q)`` con los índices ordenados por similitud.
-        """
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Convierte las entradas a tensores y comprueba las dimensiones."""
 
         Q = (
             query_descriptors
@@ -76,8 +63,25 @@ class Similarity_Search(nn.Module):
         if Q.shape[1] != X.shape[1]:
             raise ValueError("Dimensión C de Q y X debe coincidir")
 
-        sims = torch.matmul(X, Q.T)
-        return torch.argsort(sims, dim=0, descending=True)
+        return Q, X
+
+    def _similarity_matrix(
+        self, query: torch.Tensor, db: torch.Tensor
+    ) -> torch.Tensor:
+        """Devuelve la matriz de similitud ``(Q, N)``."""
+
+        return torch.matmul(query, db.T)
+
+    def compute_ranks(
+        self,
+        query_descriptors: torch.Tensor | np.ndarray,
+        db_descriptors: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor:
+        """Devuelve el ranking de similitud para cada consulta."""
+
+        Q, X = self._prepare_descriptors(query_descriptors, db_descriptors)
+        sims = self._similarity_matrix(Q, X)  # (Q, N)
+        return torch.argsort(sims, dim=1, descending=True).T
 
     def forward(
         self,
@@ -104,21 +108,16 @@ class Similarity_Search(nn.Module):
             Solo se devuelven las detecciones con una clase asignada.
         """
 
-        Q = descriptors if isinstance(descriptors, torch.Tensor) else torch.tensor(descriptors)
         DB = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
-        if Q.ndim != 2:
-            raise ValueError("descriptors debe tener shape (D, C)")
         if DB.ndim != 2 or DB.shape[1] < 2:
-            print(DB) # debug
+            print(DB)  # debug
             raise ValueError("places_db debe tener shape (N, C+1)")
 
         X = DB[:, :-1]
         idx = DB[:, -1].long()
 
-        if Q.shape[1] != X.shape[1]:
-            raise ValueError("Dimensión C de Q y X debe coincidir")
-
-        sims = torch.matmul(Q, X.T)  # (D, N)
+        Q, X = self._prepare_descriptors(descriptors, X)
+        sims = self._similarity_matrix(Q, X)  # (D, N)
         top_sims, top_idx = torch.topk(sims, self.topk, dim=1)
 
         # IDs de los vecinos en topk para cada detección
