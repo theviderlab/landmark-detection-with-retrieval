@@ -6,6 +6,7 @@ import matplotlib.patches as patches
 import numpy as np
 from benchmark.revisitop.evaluate import compute_map
 from landmark_detection.search import Similarity_Search
+import pandas as pd
 
 def run_evaluation(
     df_result,
@@ -161,6 +162,130 @@ def run_evaluation(
         g = {}
         g['ok'] = np.concatenate([gnd[i]['hard']])
         g['junk'] = np.concatenate([gnd[i]['junk'], gnd[i]['easy']])
+        gnd_t.append(g)
+    mapH, apsH, mprH, prsH = compute_map(final_ranks, gnd_t, ks)
+
+    print(
+        '>> {}: mAP E: {}, M: {}, H: {}'.format(
+            dataset,
+            np.around(mapE * 100, decimals=2),
+            np.around(mapM * 100, decimals=2),
+            np.around(mapH * 100, decimals=2),
+        )
+    )
+    print(
+        '>> {}: mP@k{} E: {}, M: {}, H: {}'.format(
+            dataset,
+            np.array(ks),
+            np.around(mprE * 100, decimals=2),
+            np.around(mprM * 100, decimals=2),
+            np.around(mprH * 100, decimals=2),
+        )
+    )
+
+    return {
+        "map_easy": mapE,
+        "map_medium": mapM,
+        "map_hard": mapH,
+        "mpr_easy": mprE,
+        "mpr_medium": mprM,
+        "mpr_hard": mprH,
+    }
+
+
+def run_evaluation2(
+    df_result,
+    places_db,
+    dataset: str = "rparis6k",
+    use_bbox: bool = False,
+):
+    """Alternative evaluation using bounding boxes on queries.
+
+    This function expects ``places_db`` with descriptors concatenated with
+    an ``image_id`` in the last column. When ``use_bbox`` is ``True`` both
+    query and database detections are considered during retrieval.
+    """
+
+    DATASETS_PATH = os.path.abspath("datasets")
+
+    print(f">> {dataset}: Evaluating test dataset...")
+    cfg = configdataset(dataset, DATASETS_PATH)
+
+    query_image_names = np.array(cfg["qimlist"]) + cfg["ext"]
+    q_idx_map = {name: idx for idx, name in enumerate(query_image_names)}
+    df_result["q_img_id"] = df_result["image_name"].map(q_idx_map).fillna(-1).astype(int)
+
+    db_image_names = np.array(cfg["imlist"]) + cfg["ext"]
+    db_idx_map = {name: idx for idx, name in enumerate(db_image_names)}
+    df_result["db_img_id"] = df_result["image_name"].map(db_idx_map).fillna(-1).astype(int)
+
+    print(f">> {dataset}: Loading features...")
+
+    mask_img_full = df_result["class_id"] == -1
+    mask_selection = np.ones(len(df_result), dtype=bool) if use_bbox else mask_img_full
+
+    mask_query = df_result["image_name"].isin(query_image_names)
+    query_index = (
+        df_result[mask_query & mask_selection]
+        .sort_values("q_img_id")
+        .index
+    )
+    Q = places_db[query_index, :-1]
+    q_ids = df_result.loc[query_index, "q_img_id"].values
+
+    mask_db = df_result["image_name"].isin(db_image_names)
+    db_index = (
+        df_result[mask_db & mask_selection]
+        .sort_values("db_img_id")
+        .index
+    )
+    X = places_db[db_index, :-1]
+    db_ids = df_result.loc[db_index, "db_img_id"].values
+
+    print(f">> {dataset}: Retrieval...")
+    sims_desc = np.dot(Q, X.T)
+
+    n_db = len(db_image_names)
+    n_q = len(query_image_names)
+    sims_img = np.full((n_db, n_q), -np.inf, dtype=np.float32)
+
+    for qid in range(n_q):
+        rows = np.where(q_ids == qid)[0]
+        if rows.size == 0:
+            continue
+        s_q = sims_desc[rows]
+        for dbid in range(n_db):
+            cols = np.where(db_ids == dbid)[0]
+            if cols.size == 0:
+                continue
+            sims_img[dbid, qid] = np.max(s_q[:, cols])
+
+    final_ranks = np.argsort(-sims_img, axis=0)
+
+    gnd = cfg["gnd"]
+    ks = [1, 5, 10]
+
+    gnd_t = []
+    for i in range(len(gnd)):
+        g = {}
+        g["ok"] = np.concatenate([gnd[i]["easy"]])
+        g["junk"] = np.concatenate([gnd[i]["junk"], gnd[i]["hard"]])
+        gnd_t.append(g)
+    mapE, apsE, mprE, prsE = compute_map(final_ranks, gnd_t, ks)
+
+    gnd_t = []
+    for i in range(len(gnd)):
+        g = {}
+        g["ok"] = np.concatenate([gnd[i]["easy"], gnd[i]["hard"]])
+        g["junk"] = np.concatenate([gnd[i]["junk"]])
+        gnd_t.append(g)
+    mapM, apsM, mprM, prsM = compute_map(final_ranks, gnd_t, ks)
+
+    gnd_t = []
+    for i in range(len(gnd)):
+        g = {}
+        g["ok"] = np.concatenate([gnd[i]["hard"]])
+        g["junk"] = np.concatenate([gnd[i]["junk"], gnd[i]["easy"]])
         gnd_t.append(g)
     mapH, apsH, mprH, prsH = compute_map(final_ranks, gnd_t, ks)
 

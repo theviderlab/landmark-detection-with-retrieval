@@ -816,8 +816,9 @@ class Pipeline_Landmark_Detection():
             Ruta donde guardar/cargar la matriz de descriptores ``(N, C)``.
         image_place_ids : pandas.DataFrame | None, optional
             DataFrame con dos columnas: ``filename`` y ``landmark_id``. Si se
-            proporciona, se generará la matriz ``places_db`` concatenando el
-            ``landmark_id`` al final de cada descriptor.
+            proporciona, se utilizarán esos identificadores. En caso contrario y
+            ``return_places_db`` es ``True``, se asignará un ``image_id``
+            incremental a cada imagen.
         return_places_db : bool, optional
             Si ``True`` la función devolverá también ``places_db``.
         force_rebuild : bool, optional
@@ -984,7 +985,13 @@ class Pipeline_Landmark_Detection():
 
         if return_places_db:
             if image_place_ids is None:
-                ids_np = np.full((len(df_result), 1), -1, dtype=np.float32)
+                filename_to_id: dict[str, int] = {}
+                ids = []
+                for name in df_result["image_name"]:
+                    if name not in filename_to_id:
+                        filename_to_id[name] = len(filename_to_id)
+                    ids.append(filename_to_id[name])
+                ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
             else:
                 required_cols = {"filename", "landmark_id"}
                 if not required_cols.issubset(image_place_ids.columns):
