@@ -26,9 +26,10 @@ def export_searcher(path, place_ids):
             "descriptors": {0: "num_boxes"},
             "places_db": {0: "db_size"},
             "boxes_out": {0: "num_boxes"},
-            "scores": {0: "num_boxes"},
-            "classes": {0: "num_boxes"},
+        "scores": {0: "num_boxes"},
+        "classes": {0: "num_boxes"},
         },
+        do_constant_folding=False,
     )
     return boxes, desc
 
