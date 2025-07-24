@@ -322,16 +322,18 @@ class Pipeline_Landmark_Detection():
             img_bgr = image
 
         img_tensor = torch.as_tensor(img_bgr)
-
+        print(img_tensor.shape) # debug
         if isinstance(places_db, torch.Tensor):
             db_np = places_db.detach().cpu().numpy().astype(np.float32)
         else:
             db_np = np.asarray(places_db, dtype=np.float32)
+        print(db_np.shape) # debug
 
         pipeline_inputs = {
             self.pipeline.get_inputs()[0].name: img_tensor.numpy(),
             self.pipeline.get_inputs()[1].name: db_np,
         }
+
         results = self.pipeline.run(None, pipeline_inputs)
 
         return results
