@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+
 class Similarity_Search(nn.Module):
     """Realiza búsqueda de similitud y votación por mayoría para cada detección."""
 
@@ -65,9 +66,7 @@ class Similarity_Search(nn.Module):
 
         return Q, X
 
-    def _similarity_matrix(
-        self, query: torch.Tensor, db: torch.Tensor
-    ) -> torch.Tensor:
+    def _similarity_matrix(self, query: torch.Tensor, db: torch.Tensor) -> torch.Tensor:
         """Devuelve la matriz de similitud ``(Q, N)``."""
 
         return torch.matmul(query, db.T)
@@ -108,7 +107,11 @@ class Similarity_Search(nn.Module):
             Solo se devuelven las detecciones con una clase asignada.
         """
 
-        DB = places_db if isinstance(places_db, torch.Tensor) else torch.tensor(places_db)
+        DB = (
+            places_db
+            if isinstance(places_db, torch.Tensor)
+            else torch.tensor(places_db)
+        )
         if DB.ndim != 2 or DB.shape[1] < 2:
             print(DB)  # debug
             raise ValueError("places_db debe tener shape (N, C+1)")
@@ -125,16 +128,17 @@ class Similarity_Search(nn.Module):
         mask_sim = top_sims >= self.min_sim  # (D, K)
 
         # Conteo de votos por clase usando one-hot
-        num_classes = int(idx.max().item()) + 1
-        one_hot_ids = torch.nn.functional.one_hot(
-            top_ids, num_classes=num_classes
-        ).to(dtype=torch.float32)
+        num_classes = idx.amax() + 1
+        classes_range = torch.arange(num_classes, device=idx.device)
+        one_hot_ids = (top_ids.unsqueeze(-1) == classes_range).to(torch.float32)
         vote_counts = (one_hot_ids * mask_sim.unsqueeze(-1)).sum(dim=1)
 
         majority_counts, majority_ids = vote_counts.max(dim=1)
         valid_votes = mask_sim.sum(dim=1).to(dtype=torch.float32)
         vote_ratio = torch.where(
-            valid_votes > 0, majority_counts / valid_votes, torch.zeros_like(valid_votes)
+            valid_votes > 0,
+            majority_counts / valid_votes,
+            torch.zeros_like(valid_votes),
         )
 
         valid = (majority_counts > 0) & (vote_ratio >= self.min_votes)
@@ -151,7 +155,9 @@ class Similarity_Search(nn.Module):
             )
 
         match = (top_ids == results.unsqueeze(1)) & mask_sim
-        sim_scores = torch.where(match, top_sims, torch.zeros_like(top_sims)).max(dim=1).values
+        sim_scores = (
+            torch.where(match, top_sims, torch.zeros_like(top_sims)).max(dim=1).values
+        )
 
         boxes_out = boxes_tensor
         scores_out = sim_scores
@@ -216,7 +222,9 @@ class Similarity_Search(nn.Module):
         area_i = areas[:, None]
         area_j = areas[None, :]
         area_small = torch.minimum(area_i, area_j)
-        overlap = torch.where(area_small > 0, inter / area_small, torch.zeros_like(inter))
+        overlap = torch.where(
+            area_small > 0, inter / area_small, torch.zeros_like(inter)
+        )
 
         same_lbl = (labels[:, None] == labels[None, :]) & (labels[:, None] >= 0)
         mask_pair = same_lbl & (overlap >= thr)
@@ -248,16 +256,34 @@ class Similarity_Search(nn.Module):
         num_cls = int(lbls.max().item()) + 1
         idx = lbls.long()
 
-        min_x1 = torch.full((num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device)
-        min_y1 = torch.full((num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device)
-        max_x2 = torch.full((num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device)
-        max_y2 = torch.full((num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device)
-        max_sc = torch.full((num_cls,), float("-inf"), dtype=scores.dtype, device=scores.device)
+        min_x1 = torch.full(
+            (num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device
+        )
+        min_y1 = torch.full(
+            (num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device
+        )
+        max_x2 = torch.full(
+            (num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device
+        )
+        max_y2 = torch.full(
+            (num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device
+        )
+        max_sc = torch.full(
+            (num_cls,), float("-inf"), dtype=scores.dtype, device=scores.device
+        )
 
-        min_x1.scatter_reduce_(0, idx, boxes[valid, 0], reduce="amin", include_self=True)
-        min_y1.scatter_reduce_(0, idx, boxes[valid, 1], reduce="amin", include_self=True)
-        max_x2.scatter_reduce_(0, idx, boxes[valid, 2], reduce="amax", include_self=True)
-        max_y2.scatter_reduce_(0, idx, boxes[valid, 3], reduce="amax", include_self=True)
+        min_x1.scatter_reduce_(
+            0, idx, boxes[valid, 0], reduce="amin", include_self=True
+        )
+        min_y1.scatter_reduce_(
+            0, idx, boxes[valid, 1], reduce="amin", include_self=True
+        )
+        max_x2.scatter_reduce_(
+            0, idx, boxes[valid, 2], reduce="amax", include_self=True
+        )
+        max_y2.scatter_reduce_(
+            0, idx, boxes[valid, 3], reduce="amax", include_self=True
+        )
         max_sc.scatter_reduce_(0, idx, scores[valid], reduce="amax", include_self=True)
 
         new_boxes = torch.stack([min_x1, min_y1, max_x2, max_y2], dim=1)
