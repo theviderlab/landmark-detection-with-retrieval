@@ -582,7 +582,7 @@ class Pipeline_Landmark_Detection():
                 "scores": {0: "num_boxes"},
                 "classes": {0: "num_boxes"},
             },
-            do_constant_folding=True,
+            do_constant_folding=False,
         )
 
         # Añadir bypass para orig_size
