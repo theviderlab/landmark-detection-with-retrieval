@@ -253,24 +253,13 @@ class Similarity_Search(nn.Module):
             return boxes, scores, labels
 
         lbls = labels[valid]
-        num_cls = int(lbls.max().item()) + 1
-        idx = lbls.long()
+        unique_lbls, idx = torch.unique(lbls, sorted=True, return_inverse=True)
 
-        min_x1 = torch.full(
-            (num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device
-        )
-        min_y1 = torch.full(
-            (num_cls,), float("inf"), dtype=boxes.dtype, device=boxes.device
-        )
-        max_x2 = torch.full(
-            (num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device
-        )
-        max_y2 = torch.full(
-            (num_cls,), float("-inf"), dtype=boxes.dtype, device=boxes.device
-        )
-        max_sc = torch.full(
-            (num_cls,), float("-inf"), dtype=scores.dtype, device=scores.device
-        )
+        min_x1 = torch.full_like(unique_lbls, float("inf"), dtype=boxes.dtype)
+        min_y1 = torch.full_like(unique_lbls, float("inf"), dtype=boxes.dtype)
+        max_x2 = torch.full_like(unique_lbls, float("-inf"), dtype=boxes.dtype)
+        max_y2 = torch.full_like(unique_lbls, float("-inf"), dtype=boxes.dtype)
+        max_sc = torch.full_like(unique_lbls, float("-inf"), dtype=scores.dtype)
 
         min_x1.scatter_reduce_(
             0, idx, boxes[valid, 0], reduce="amin", include_self=True
@@ -288,7 +277,7 @@ class Similarity_Search(nn.Module):
 
         new_boxes = torch.stack([min_x1, min_y1, max_x2, max_y2], dim=1)
         new_scores = max_sc
-        new_labels = torch.arange(num_cls, device=labels.device, dtype=labels.dtype)
+        new_labels = unique_lbls
 
         none_boxes = boxes[~valid]
         none_scores = scores[~valid]
