@@ -1,5 +1,6 @@
-import torch
-import onnxruntime as ort
+import pytest
+torch = pytest.importorskip("torch")
+ort = pytest.importorskip("onnxruntime")
 from landmark_detection.search import Similarity_Search
 
 

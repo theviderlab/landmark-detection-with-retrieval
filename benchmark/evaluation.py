@@ -1,4 +1,5 @@
 import os
+import json
 from benchmark.revisitop.dataset import configdataset
 import cv2
 import matplotlib.pyplot as plt
@@ -426,4 +427,38 @@ def show_inference_example(
 
     plt.tight_layout()
     plt.show()
+
+
+def save_evaluation_result(results: dict, path: str, config: dict) -> None:
+    """Store evaluation metrics and configuration in a JSON file.
+
+    This helper collects the results returned by :func:`run_evaluation` or
+    :func:`run_evaluation2` together with the configuration used to obtain
+    them.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary with metrics produced by the evaluation functions.
+    path : str
+        Destination JSON file where results will be stored.
+    config : dict
+        Configuration parameters relevant to the evaluation run.
+    """
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    data = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                data = []
+        except Exception:
+            data = []
+
+    data.append({"results": results, "config": config})
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
