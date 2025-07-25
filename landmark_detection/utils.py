@@ -17,18 +17,29 @@ def show_image(img_path):
     plt.axis('off')
     plt.show()
 
-def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
+def show_bboxes(
+    img_path,
+    class_names_path=None,
+    boxes=None,
+    cls=None,
+    scores=None,
+    bbox_gnd=None,
+):
     """
     Muestra una imagen con las cajas predichas en rojo y opcionalmente la caja ground truth en verde.
     Si el índice de clase es -1, etiqueta la caja como "full image".
 
     Args:
         img_path (str): Ruta a la imagen.
-        class_names_path (str): Ruta al YAML con los nombres de las clases.
-        boxes (List[List[float]]): Lista de cajas predichas [[x1, y1, x2, y2], ...].
-        cls (List[int]): Lista de índices de clase para cada caja predicha.
-        scores (List[float]): Lista de puntajes de confianza para cada caja predicha.
-        bbox_gnd (Optional[List[float]]): Caja ground truth [x1, y1, x2, y2]. Si no se provee, no la dibuja.
+        class_names_path (Optional[str]): Ruta al YAML con los nombres de las clases.
+        boxes (Optional[List[List[float]]]): Lista de cajas predichas ``[[x1, y1, x2, y2], ...]``.
+        cls (Optional[List[int]]): Lista de índices de clase para cada caja predicha.
+        scores (Optional[List[float]]): Lista de puntajes de confianza para cada caja predicha.
+        bbox_gnd (Optional[List[float]]): Caja ground truth ``[x1, y1, x2, y2]``. Si no se
+            provee, no la dibuja.
+
+    Si ``class_names_path``, ``cls`` o ``scores`` son ``None`` se muestran las
+    cajas sin etiquetas.
     """
     # Carga de imagen
     img_bgr = cv2.imread(img_path)
@@ -36,8 +47,15 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
         raise FileNotFoundError(f"No se encontró la imagen en {img_path}")
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-    # Carga las clases
-    class_names = load_names_from_yaml(class_names_path)
+    # Carga las clases si se proporciona un YAML
+    class_names = []
+    if class_names_path is not None:
+        class_names = load_names_from_yaml(class_names_path)
+
+    # Normalizar listas de entradas opcionales
+    boxes = boxes or []
+    cls = cls or [None] * len(boxes)
+    scores = scores or [None] * len(boxes)
     
     print(f"Encontradas {len(boxes)} cajas:")
     for i in range(len(boxes)):
@@ -48,8 +66,12 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
         elif idx == -1:
             class_name = "No detected"
         else:
-            class_name = class_names[idx]
-        print(f"  Clase {idx} {class_name} @ {scores[i]:.2f} → [{x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}]")
+            class_name = class_names[idx] if idx < len(class_names) else str(idx)
+        sc = scores[i]
+        score_str = f"{sc:.2f}" if sc is not None else "None"
+        print(
+            f"  Clase {idx} {class_name} @ {score_str} → [{x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}]"
+        )
         
     plt.figure(figsize=(6,6))
     plt.imshow(img_rgb)
@@ -77,27 +99,37 @@ def show_bboxes(img_path, class_names_path, boxes, cls, scores, bbox_gnd=None):
     # Dibujar cajas predichas en rojo
     i = 0
     for (x1, y1, x2, y2), cls_idx, sc in zip(boxes, cls, scores):
-        if cls_idx is None:
-            continue
-
         rect = plt.Rectangle(
             (x1, y1),
             x2 - x1,
             y2 - y1,
-            fill=False, linewidth=2, edgecolor='red'
+            fill=False,
+            linewidth=2,
+            edgecolor="red",
         )
         ax.add_patch(rect)
-        if cls_idx == -1:
-            class_name = "ND"
-        else:
-            class_name = class_names[cls_idx]
-        ax.text(
-            x1, y1 - 4,
-            f"{i} - {class_name}:{sc:.2f}",
-            color='white', fontsize=9,
-            bbox=dict(facecolor='red', alpha=0.5)
-        )
-        i = i + 1
+        label_parts = []
+        if cls_idx is not None:
+            if cls_idx == -1:
+                label_parts.append("ND")
+            else:
+                label_parts.append(
+                    class_names[cls_idx]
+                    if cls_idx < len(class_names)
+                    else str(cls_idx)
+                )
+        if sc is not None:
+            label_parts.append(f"{sc:.2f}")
+        if label_parts:
+            ax.text(
+                x1,
+                y1 - 4,
+                f"{i} - {':'.join(label_parts)}",
+                color="white",
+                fontsize=9,
+                bbox=dict(facecolor="red", alpha=0.5),
+            )
+        i += 1
     
     plt.axis('off')
     plt.show()
