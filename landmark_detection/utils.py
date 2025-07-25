@@ -19,8 +19,8 @@ def show_image(img_path):
 
 def show_bboxes(
     img_path,
-    class_names_path=None,
     boxes=None,
+    class_names_path=None,
     cls=None,
     scores=None,
     bbox_gnd=None,
@@ -31,8 +31,8 @@ def show_bboxes(
 
     Args:
         img_path (str): Ruta a la imagen.
+        boxes (List[List[float]]): Lista de cajas predichas ``[[x1, y1, x2, y2], ...]``.
         class_names_path (Optional[str]): Ruta al YAML con los nombres de las clases.
-        boxes (Optional[List[List[float]]]): Lista de cajas predichas ``[[x1, y1, x2, y2], ...]``.
         cls (Optional[List[int]]): Lista de índices de clase para cada caja predicha.
         scores (Optional[List[float]]): Lista de puntajes de confianza para cada caja predicha.
         bbox_gnd (Optional[List[float]]): Caja ground truth ``[x1, y1, x2, y2]``. Si no se
@@ -53,9 +53,11 @@ def show_bboxes(
         class_names = load_names_from_yaml(class_names_path)
 
     # Normalizar listas de entradas opcionales
-    boxes = boxes or []
-    cls = cls or [None] * len(boxes)
-    scores = scores or [None] * len(boxes)
+    if cls is None:
+        cls = [None] * len(boxes)
+
+    if scores is None:
+        scores = [None] * len(boxes)
     
     print(f"Encontradas {len(boxes)} cajas:")
     for i in range(len(boxes)):
@@ -148,7 +150,7 @@ def load_names_from_yaml(file_path):
     
     y devuelve una lista de nombres ordenados según la clave numérica.
     """
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r') as f:
         data = yaml.safe_load(f)
     
     names_dict = data.get('names', {})
