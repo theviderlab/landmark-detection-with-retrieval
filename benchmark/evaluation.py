@@ -193,7 +193,6 @@ def run_evaluation(
         "mpr_hard": mprH,
     }
 
-
 def run_evaluation2(
     df_result,
     places_db,
@@ -317,7 +316,6 @@ def run_evaluation2(
         "mpr_hard": mprH,
     }
 
-
 def show_inference_example(
     df_result,
     descriptors_final,
@@ -428,8 +426,7 @@ def show_inference_example(
     plt.tight_layout()
     plt.show()
 
-
-def save_evaluation_result(results: dict, path: str, config: dict) -> None:
+def save_evaluation_result(results: dict, results_bbox: dict, path: str, config: dict) -> None:
     """Store evaluation metrics and configuration in a JSON file.
 
     This helper collects the results returned by :func:`run_evaluation` or
@@ -458,7 +455,7 @@ def save_evaluation_result(results: dict, path: str, config: dict) -> None:
         except Exception:
             data = []
 
-    data.append({"results": results, "config": config})
+    data.append({"results": results, "results_bbox": results_bbox, "config": config})
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
