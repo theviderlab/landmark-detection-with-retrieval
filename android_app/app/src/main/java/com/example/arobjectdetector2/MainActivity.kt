@@ -156,16 +156,27 @@ class MainActivity : AppCompatActivity() {
                         input.copyTo(output)
                     }
                 }
+
+                val dbFileName = "places_db.bin"
+                val tmpDb = File(cacheDir, dbFileName)
+                assets.open(dbFileName).use { input ->
+                    tmpDb.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
                 val env = OrtEnvironment.getEnvironment()
                 ortSession = env.createSession(tmpFile.absolutePath, OrtSession.SessionOptions())
                 Log.d(TAG, "ORT session loaded correctly")
 
                 // Inicializa el detector
-            detector = YoloDetector(
-                this,
-                session = ortSession!!
-            )
-        } catch (e: Exception) {
+                val dbStream = tmpDb.inputStream()
+                detector = YoloDetector(
+                    this,
+                    session = ortSession!!,
+                    descriptorsStream = dbStream
+                )
+            } catch (e: Exception) {
             Log.e(TAG, "Error cargando el modelo ONNX", e)
             runOnUiThread {
                 Toast.makeText(
@@ -190,6 +201,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        detector?.close()
         ortSession?.close()
     }
 
