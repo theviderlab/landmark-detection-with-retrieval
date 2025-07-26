@@ -70,10 +70,21 @@ class BoxOverlay @JvmOverloads constructor(
             canvas.drawBitmap(locationBitmap, iconLeft, iconTop, null)
 
             val text = det.label
-            val textWidth = textPaint.measureText(text)
-            val textX = centerX - textWidth / 2f
-            val textY = r.top + textPaint.textSize
-            canvas.drawText(text, textX, textY, textPaint)
+            val overlayWidth = width.toFloat()
+            val textY = iconTop + locationBitmap.height + textPaint.textSize
+
+            var remaining = text
+            var lineIndex = 0
+            while (remaining.isNotEmpty()) {
+                val count = textPaint.breakText(remaining, true, overlayWidth, null)
+                val line = remaining.substring(0, count)
+                val lineWidth = textPaint.measureText(line)
+                val textX = centerX - lineWidth / 2f
+                val lineY = textY + lineIndex * textPaint.fontSpacing
+                canvas.drawText(line, textX, lineY, textPaint)
+                remaining = remaining.substring(count)
+                lineIndex += 1
+            }
         }
         if (SHOW_DEBUG_BOX) {
             debugRect.set(
