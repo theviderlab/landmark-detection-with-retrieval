@@ -7,6 +7,7 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.util.Log
+import android.os.SystemClock
 import org.json.JSONObject
 import kotlin.math.max
 
@@ -51,6 +52,7 @@ class YoloDetector(
         // Las dos primeras posiciones contienen N y C+1 en formato int32
         val n = bb.int
         val c = bb.int
+        Log.d(TAG, "Loaded descriptor DB: N=$n, dim=${c - 1}")
         val floatBuffer = bb.asFloatBuffer()
 
         placesTensor = OnnxTensor.createTensor(
@@ -69,6 +71,7 @@ class YoloDetector(
         // The ONNX model expects a uint8 HWC tensor (H,W,3) in BGR order
         val width = bitmap.width
         val height = bitmap.height
+        Log.d(TAG, "Running detection on ${width}x${height} bitmap")
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
@@ -89,10 +92,14 @@ class YoloDetector(
         val imageName = namesIter.next()
         val dbName = if (namesIter.hasNext()) namesIter.next() else "places_db"
         Log.d(TAG, "Using inputs '$imageName' and '$dbName'")
+        val inputShape = longArrayOf(height.toLong(), width.toLong(), 3L)
         OnnxTensor.createTensor(env, buffer,
-            longArrayOf(height.toLong(), width.toLong(), 3L),
+            inputShape,
             ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
+            Log.d(TAG, "Input tensor shape=${tensor.info.shape.contentToString()} db=${placesTensor.info.shape.contentToString()}")
+            val startTime = SystemClock.uptimeMillis()
             session.run(mapOf(imageName to tensor, dbName to placesTensor)).use { result ->
+                val elapsed = SystemClock.uptimeMillis() - startTime
                 if (result.size() < 3) return emptyList()
 
                 @Suppress("UNCHECKED_CAST")
@@ -102,7 +109,7 @@ class YoloDetector(
                 @Suppress("UNCHECKED_CAST")
                 val classes = result[2].value as LongArray
 
-                Log.d(TAG, "ORT outputs -> boxes=${boxes.size} scores=${scores.size}")
+                Log.d(TAG, "ORT outputs -> boxes=${boxes.size}x${boxes[0].size} scores=${scores.size} classes=${classes.size} in ${elapsed}ms")
 
                 val detections = mutableListOf<Detection>()
                 for (i in scores.indices) {
@@ -117,7 +124,7 @@ class YoloDetector(
                     detections.forEachIndexed { idx, det ->
                         Log.d(
                             TAG,
-                            "Det $idx -> cls=${det.cls} score=${det.score} box=${det.box}"
+                            "Det $idx -> label=${getClassName(det.cls)} score=${det.score} box=${det.box}"
                         )
                     }
                 } else {
@@ -173,6 +180,7 @@ class YoloDetector(
     private fun getClassName(idx: Int): String = classMap[idx] ?: idx.toString()
 
     fun close() {
+        Log.d(TAG, "Closing YoloDetector and releasing tensors")
         placesTensor.close()
     }
 }
