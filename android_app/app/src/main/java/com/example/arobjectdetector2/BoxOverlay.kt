@@ -59,7 +59,7 @@ class BoxOverlay @JvmOverloads constructor(
         super.onDraw(canvas)
         for (det in detections) {
             val r = det.box
-            canvas.drawRect(r, boxPaint)
+            // canvas.drawRect(r, boxPaint)
 
             val centerX = r.centerX()
             val iconLeft = centerX - locationBitmap.width / 2f
