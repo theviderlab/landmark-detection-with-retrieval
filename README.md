@@ -23,7 +23,8 @@ provided, incremental ``image_id`` values will be assigned automatically when
 The function `export_places_db` allows storing this array together with a label
 mapping on disk::
 
-    from landmark_detection.utils import export_places_db
+    from landmark_detection.utils import export_places_db, load_names_from_yaml
+    id_to_name = load_names_from_yaml("names.yaml", as_dict=True)
     export_places_db(places_db, id_to_name, "./db")
 
 This will create ``db/places_db.npz`` and ``db/label_map.json``.
