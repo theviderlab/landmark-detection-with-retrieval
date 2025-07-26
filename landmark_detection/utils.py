@@ -137,7 +137,7 @@ def show_bboxes(
     plt.axis('off')
     plt.show()
 
-def load_names_from_yaml(file_path):
+def load_names_from_yaml(file_path, as_dict: bool = False):
     """
     Carga un archivo YAML con la estructura:
     
@@ -149,7 +149,21 @@ def load_names_from_yaml(file_path):
       4: Alarm clock
       5: Alpaca
     
-    y devuelve una lista de nombres ordenados según la clave numérica.
+    y devuelve los nombres ordenados según la clave numérica.
+
+    Parameters
+    ----------
+    file_path : str
+        Ruta al archivo YAML con el mapeo ``names``.
+    as_dict : bool, optional
+        Si ``True`` devuelve un diccionario ``{int: str}`` ordenado por la
+        clave numérica. Si ``False`` (por defecto) devuelve una lista de
+        nombres ordenada.
+
+    Returns
+    -------
+    list[str] | dict[int, str]
+        Lista o diccionario con los nombres dependiendo de ``as_dict``.
     """
     with open(file_path, 'r') as f:
         data = yaml.safe_load(f)
@@ -157,7 +171,10 @@ def load_names_from_yaml(file_path):
     names_dict = data.get('names', {})
     # Ordenar los elementos por la clave (convirtiendo a entero si hace falta)
     sorted_items = sorted(names_dict.items(), key=lambda item: int(item[0]))
-    
+
+    if as_dict:
+        return {int(k): v for k, v in sorted_items}
+
     # Construir la lista de valores
     names_list = [value for _, value in sorted_items]
     return names_list
