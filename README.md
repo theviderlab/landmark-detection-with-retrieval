@@ -27,4 +27,4 @@ mapping on disk::
     id_to_name = load_names_from_yaml("names.yaml", as_dict=True)
     export_places_db(places_db, id_to_name, "./db")
 
-This will create ``db/places_db.npz`` and ``db/label_map.json``.
+This will create ``db/places_db.bin`` and ``db/label_map.json``.
