@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadDnnModel() {
         Thread {
             try {
-                val onnxName = "pipeline-yolo-cvnet-sg-v1.onnx"
+                val onnxName = "pipeline.onnx"
                 val tmpFile = File(cacheDir, onnxName)
                 if (!tmpFile.exists()) {
                     assets.open(onnxName).use { input ->
