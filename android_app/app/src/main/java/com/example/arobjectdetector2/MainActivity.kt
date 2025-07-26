@@ -251,6 +251,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun placeMarker(modelFileLocation: String = "file:///android_asset/arrow.glb") {
+        val node = ModelNode(modelFileLocation)
+        sceneView.addChildNode(node)
+    }
+
     private inner class YoloAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
             val det = detector
