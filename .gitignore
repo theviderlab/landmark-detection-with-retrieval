@@ -9,3 +9,4 @@ landmark_detection/__pycache__/
 *.pyth
 *.onnx
 *.pt
+/configs
