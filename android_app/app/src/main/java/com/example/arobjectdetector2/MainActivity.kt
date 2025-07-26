@@ -30,6 +30,9 @@ class MainActivity : AppCompatActivity() {
         private const val CAMERA_PERMISSION_REQUEST = 1
         private const val USE_STATIC_FRAME = false
 
+        // Cache the descriptor database in memory so it is loaded only once
+        private var descriptorBytes: ByteArray? = null
+
     }
 
     private lateinit var previewView: PreviewView
@@ -151,18 +154,17 @@ class MainActivity : AppCompatActivity() {
             try {
                 val onnxName = "pipeline-yolo-cvnet-sg-v1.onnx"
                 val tmpFile = File(cacheDir, onnxName)
-                assets.open(onnxName).use { input ->
-                    tmpFile.outputStream().use { output ->
-                        input.copyTo(output)
+                if (!tmpFile.exists()) {
+                    assets.open(onnxName).use { input ->
+                        tmpFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
 
-                val dbFileName = "places_db.bin"
-                val tmpDb = File(cacheDir, dbFileName)
-                assets.open(dbFileName).use { input ->
-                    tmpDb.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+                if (descriptorBytes == null) {
+                    val dbFileName = "places_db.bin"
+                    descriptorBytes = assets.open(dbFileName).use { it.readBytes() }
                 }
 
                 val env = OrtEnvironment.getEnvironment()
@@ -170,7 +172,7 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "ORT session loaded correctly")
 
                 // Inicializa el detector
-                val dbStream = tmpDb.inputStream()
+                val dbStream = java.io.ByteArrayInputStream(descriptorBytes!!)
                 detector = YoloDetector(
                     this,
                     session = ortSession!!,
