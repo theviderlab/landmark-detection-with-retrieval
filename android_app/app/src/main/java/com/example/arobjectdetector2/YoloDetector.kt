@@ -109,7 +109,17 @@ class YoloDetector(
                 @Suppress("UNCHECKED_CAST")
                 val classes = result[2].value as LongArray
 
-                Log.d(TAG, "ORT outputs -> boxes=${boxes.size}x${boxes[0].size} scores=${scores.size} classes=${classes.size} in ${elapsed}ms")
+                if (boxes.isNotEmpty()) {
+                    Log.d(
+                        TAG,
+                        "ORT outputs -> boxes=${boxes.size}x${boxes[0].size} scores=${scores.size} classes=${classes.size} in ${elapsed}ms"
+                    )
+                } else {
+                    Log.d(
+                        TAG,
+                        "ORT outputs -> boxes=0 scores=${scores.size} classes=${classes.size} in ${elapsed}ms"
+                    )
+                }
 
                 val detections = mutableListOf<Detection>()
                 for (i in scores.indices) {
