@@ -19,6 +19,7 @@ import kotlin.math.max
 class YoloDetector(
     context: Context,
     private val session: OrtSession,
+    descriptorsStream: java.io.InputStream,
     private val labelsAssetFile: String = "labels.txt"
 ) {
     companion object {
@@ -28,6 +29,29 @@ class YoloDetector(
     private val classNames: List<String> = context.assets.open(labelsAssetFile)
         .bufferedReader()
         .useLines { it.toList() }
+
+    // Tensor con la base de datos de descriptores
+    private val placesTensor: OnnxTensor
+
+    init {
+        // Leer el binario de descriptores y crear el tensor (N, C+1)
+        val bytes = descriptorsStream.use { it.readBytes() }
+        val bb = java.nio.ByteBuffer.allocateDirect(bytes.size)
+        bb.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        bb.put(bytes)
+        bb.rewind()
+
+        // Las dos primeras posiciones contienen N y C+1 en formato int32
+        val n = bb.int
+        val c = bb.int
+        val floatBuffer = bb.asFloatBuffer()
+
+        placesTensor = OnnxTensor.createTensor(
+            OrtEnvironment.getEnvironment(),
+            floatBuffer,
+            longArrayOf(n.toLong(), c.toLong())
+        )
+    }
 
     /**
      * Ejecuta la inferencia del modelo sobre un bitmap ARGB_8888.
@@ -54,12 +78,14 @@ class YoloDetector(
         buffer.rewind()
 
         val env = OrtEnvironment.getEnvironment()
-        val inputName = session.inputNames.iterator().next()
-        Log.d(TAG, "Using input '$inputName' -> shape ($height, $width, 3)")
+        val namesIter = session.inputNames.iterator()
+        val imageName = namesIter.next()
+        val dbName = if (namesIter.hasNext()) namesIter.next() else "places_db"
+        Log.d(TAG, "Using inputs '$imageName' and '$dbName'")
         OnnxTensor.createTensor(env, buffer,
             longArrayOf(height.toLong(), width.toLong(), 3L),
             ai.onnxruntime.OnnxJavaType.UINT8).use { tensor ->
-            session.run(mapOf(inputName to tensor)).use { result ->
+            session.run(mapOf(imageName to tensor, dbName to placesTensor)).use { result ->
                 if (result.size() < 3) return emptyList()
 
                 @Suppress("UNCHECKED_CAST")
@@ -137,4 +163,8 @@ class YoloDetector(
      * Obtiene el nombre de clase a partir del índice, o el índice si no existe.
      */
     private fun getClassName(idx: Int): String = classNames.getOrNull(idx) ?: idx.toString()
+
+    fun close() {
+        placesTensor.close()
+    }
 }
