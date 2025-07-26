@@ -1,6 +1,7 @@
 package com.example.arobjectdetector2
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -9,6 +10,22 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.example.arobjectdetector2.R
+
+private fun Context.drawableToBitmap(resId: Int): Bitmap {
+    val drawable = ContextCompat.getDrawable(this, resId) ?: return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+    if (drawable is BitmapDrawable) {
+        return drawable.bitmap
+    }
+    val bitmap = Bitmap.createBitmap(
+        drawable.intrinsicWidth,
+        drawable.intrinsicHeight,
+        Bitmap.Config.ARGB_8888
+    )
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, canvas.width, canvas.height)
+    drawable.draw(canvas)
+    return bitmap
+}
 
 class BoxOverlay @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0
@@ -28,9 +45,7 @@ class BoxOverlay @JvmOverloads constructor(
         color = 0xffff0000.toInt()
         textSize = 48f
     }
-    private val locationBitmap = (
-        ContextCompat.getDrawable(context, R.drawable.ic_location_3d) as BitmapDrawable
-    ).bitmap
+    private val locationBitmap = context.drawableToBitmap(R.drawable.ic_location_3d)
     /** Reusable rectangle to avoid allocations during drawing. */
     private val debugRect = RectF()
     private var detections: List<Detection> = emptyList()
