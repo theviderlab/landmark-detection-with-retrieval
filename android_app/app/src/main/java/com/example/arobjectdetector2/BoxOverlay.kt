@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.example.arobjectdetector2.R
 
 class BoxOverlay @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0
@@ -25,6 +28,9 @@ class BoxOverlay @JvmOverloads constructor(
         color = 0xffff0000.toInt()
         textSize = 48f
     }
+    private val locationBitmap = (
+        ContextCompat.getDrawable(context, R.drawable.ic_location_3d) as BitmapDrawable
+    ).bitmap
     /** Reusable rectangle to avoid allocations during drawing. */
     private val debugRect = RectF()
     private var detections: List<Detection> = emptyList()
@@ -39,12 +45,17 @@ class BoxOverlay @JvmOverloads constructor(
         for (det in detections) {
             val r = det.box
             canvas.drawRect(r, boxPaint)
-            canvas.drawText(
-                "${det.label}: ${"%.2f".format(det.score)}",
-                r.left,
-                r.top - 10,
-                textPaint
-            )
+
+            val centerX = r.centerX()
+            val iconLeft = centerX - locationBitmap.width / 2f
+            val iconTop = r.top - locationBitmap.height
+            canvas.drawBitmap(locationBitmap, iconLeft, iconTop, null)
+
+            val text = det.label
+            val textWidth = textPaint.measureText(text)
+            val textX = centerX - textWidth / 2f
+            val textY = r.top + textPaint.textSize
+            canvas.drawText(text, textX, textY, textPaint)
         }
         if (SHOW_DEBUG_BOX) {
             debugRect.set(
