@@ -43,6 +43,8 @@ class MainActivity : AppCompatActivity() {
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
     private var staticBitmap: Bitmap? = null
+    private var lastDetections: List<Detection> = emptyList()
+    private val markerNodes = mutableListOf<io.github.sceneview.ar.node.AnchorNode>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -209,9 +211,36 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         sceneView.onDestroy()
+        clearMarkers()
         cameraExecutor.shutdown()
         detector?.close()
         ortSession?.close()
+    }
+
+    private fun clearMarkers() {
+        markerNodes.forEach { node ->
+            sceneView.removeChildNode(node)
+            node.destroy()
+        }
+        markerNodes.clear()
+    }
+
+    private fun placeMarker(det: Detection) {
+        val frame = sceneView.arSession?.currentFrame ?: return
+        val centerX = det.box.centerX()
+        val centerY = det.box.centerY()
+        val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
+        val anchor = hit.createAnchor()
+        val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
+        val viewNode = io.github.sceneview.node.ViewNode(
+            sceneView.engine,
+            sceneView.modelLoader,
+            sceneView.viewAttachmentManager
+        )
+        viewNode.loadView(this, R.layout.marker_view, {}, { _, _ -> })
+        anchorNode.addChildNode(viewNode)
+        sceneView.addChildNode(anchorNode)
+        markerNodes.add(anchorNode)
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
@@ -286,6 +315,11 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     overlay.setDetections(viewDetections)
+                    if (viewDetections != lastDetections) {
+                        clearMarkers()
+                        lastDetections = viewDetections
+                        viewDetections.forEach { placeMarker(it) }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en YoloAnalyzer", e)
