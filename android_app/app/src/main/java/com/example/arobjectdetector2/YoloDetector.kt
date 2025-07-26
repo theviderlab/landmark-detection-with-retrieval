@@ -7,6 +7,7 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.util.Log
+import org.json.JSONObject
 import kotlin.math.max
 
 /**
@@ -14,21 +15,27 @@ import kotlin.math.max
  * El modelo contiene desde el preprocesamiento hasta el postprocesamiento,
  * por lo que sólo es necesario convertir el Bitmap a BGR y ejecutar `forward`.
  *
- * Este detector carga automáticamente los nombres de clase desde un archivo de labels en assets.
- */
+ * Este detector carga automáticamente el mapeo de identificadores a nombres de lugar
+ * desde un archivo JSON en la carpeta de assets.
+*/
 class YoloDetector(
     context: Context,
     private val session: OrtSession,
     descriptorsStream: java.io.InputStream,
-    private val labelsAssetFile: String = "labels.txt"
+    private val labelMapAssetFile: String = "label_map.json"
 ) {
     companion object {
         private const val TAG = "YoloDetector"
     }
-    // Carga nombres de clase desde assets/labelsAssetFile
-    private val classNames: List<String> = context.assets.open(labelsAssetFile)
-        .bufferedReader()
-        .useLines { it.toList() }
+    // Carga el mapeo id → nombre desde assets/labelMapAssetFile
+    private val classMap: Map<Int, String> =
+        context.assets.open(labelMapAssetFile).use { input ->
+            val text = input.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            json.keys().asSequence().associate { k ->
+                k.toInt() to json.getString(k)
+            }
+        }
 
     // Tensor con la base de datos de descriptores
     private val placesTensor: OnnxTensor
@@ -160,9 +167,10 @@ class YoloDetector(
     }
 
     /**
-     * Obtiene el nombre de clase a partir del índice, o el índice si no existe.
+     * Obtiene el nombre legible de la clase a partir del índice, o el índice
+     * en forma de cadena si no se encuentra en el mapa.
      */
-    private fun getClassName(idx: Int): String = classNames.getOrNull(idx) ?: idx.toString()
+    private fun getClassName(idx: Int): String = classMap[idx] ?: idx.toString()
 
     fun close() {
         placesTensor.close()
