@@ -45,7 +45,10 @@ class BoxOverlay @JvmOverloads constructor(
         color = 0xffff0000.toInt()
         textSize = 48f
     }
-    private val locationBitmap = context.drawableToBitmap(R.drawable.ic_location_3d)
+    private val locationBitmap =
+        context.drawableToBitmap(R.drawable.ic_location_3d).let {
+            Bitmap.createScaledBitmap(it, it.width * 2, it.height * 2, true)
+        }
     /** Reusable rectangle to avoid allocations during drawing. */
     private val debugRect = RectF()
     private var detections: List<Detection> = emptyList()
