@@ -57,4 +57,8 @@ class BoxOverlay @JvmOverloads constructor(
             canvas.drawText("debug", debugRect.left, debugRect.top - 10, textPaint)
         }
     }
+    override fun gatherTransparentRegion(region: android.graphics.Region?): Boolean {
+        // Disable transparent region hints to avoid surfaceflinger warnings.
+        return false
+    }
 }
