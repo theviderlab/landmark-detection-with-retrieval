@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.view.WindowManager
+import io.github.sceneview.SceneView
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: BoxOverlay
+    private lateinit var sceneView: SceneView
     private lateinit var cameraExecutor: ExecutorService
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
@@ -48,6 +50,8 @@ class MainActivity : AppCompatActivity() {
 
         previewView = findViewById(R.id.previewView)
         overlay     = findViewById(R.id.overlay)
+        sceneView   = findViewById(R.id.sceneView)
+        sceneView.onCreate(this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // DEBUG: carga la imagen fija solo una vez
@@ -193,15 +197,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        sceneView.onResume()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onPause() {
         super.onPause()
+        sceneView.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
     override fun onDestroy() {
         super.onDestroy()
+        sceneView.onDestroy()
         cameraExecutor.shutdown()
         detector?.close()
         ortSession?.close()
