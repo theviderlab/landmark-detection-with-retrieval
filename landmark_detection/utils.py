@@ -244,9 +244,16 @@ def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_di
     label_map : dict[int, str]
         Diccionario que mapea ``place_id`` a su nombre legible.
     output_dir : str
-        Carpeta donde se escribirán ``places_db.npz`` y ``label_map.json``.
+        Carpeta donde se escribirán ``places_db.bin`` y ``label_map.json``.
     """
     os.makedirs(output_dir, exist_ok=True)
-    np.savez_compressed(os.path.join(output_dir, "places_db.npz"), places_db.astype(np.float32))
+    places = places_db.astype(np.float32)
+    bin_path = os.path.join(output_dir, "places_db.bin")
+    with open(bin_path, "wb") as f:
+        n, c = places.shape
+        header = np.array([n, c], dtype=np.int32)
+        f.write(header.tobytes())
+        f.write(places.tobytes())
+
     with open(os.path.join(output_dir, "label_map.json"), "w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2, ensure_ascii=False)
