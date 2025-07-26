@@ -19,3 +19,11 @@ its ``landmark_id`` the function concatenates the identifier to each descriptor
 and, optionally, returns the resulting `(N, C + 1)` matrix. If no mapping is
 provided, incremental ``image_id`` values will be assigned automatically when
 ``return_places_db`` is ``True``.
+
+The function `export_places_db` allows storing this array together with a label
+mapping on disk::
+
+    from landmark_detection.utils import export_places_db
+    export_places_db(places_db, id_to_name, "./db")
+
+This will create ``db/places_db.npz`` and ``db/label_map.json``.

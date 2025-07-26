@@ -2,6 +2,7 @@ import os
 import cv2
 import yaml
 import numpy as np
+import json
 import matplotlib.pyplot as plt
 
 def show_image(img_path):   
@@ -215,3 +216,21 @@ def show_similarity_search(
 
     plt.tight_layout()
     plt.show()
+
+
+def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_dir: str) -> None:
+    """Guarda la base de datos de descriptores y el mapeo de etiquetas.
+
+    Parameters
+    ----------
+    places_db : numpy.ndarray
+        Matriz ``(N, C + 1)`` con descriptores y el ``place_id`` en la última columna.
+    label_map : dict[int, str]
+        Diccionario que mapea ``place_id`` a su nombre legible.
+    output_dir : str
+        Carpeta donde se escribirán ``places_db.npz`` y ``label_map.json``.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    np.savez_compressed(os.path.join(output_dir, "places_db.npz"), places_db.astype(np.float32))
+    with open(os.path.join(output_dir, "label_map.json"), "w", encoding="utf-8") as f:
+        json.dump(label_map, f, indent=2, ensure_ascii=False)
