@@ -800,6 +800,7 @@ class Pipeline_Landmark_Detection():
         save_every: int = 500,
         min_area: float = 0.0,
         min_sim: float = 0.0,
+        keep_full_img: bool = False,
     ) -> Tuple[pd.DataFrame, np.ndarray] | Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
         """Construye o actualiza una base de datos de descriptores.
 
@@ -834,6 +835,9 @@ class Pipeline_Landmark_Detection():
             considerarse.
         min_sim : float, optional
             Similaridad mínima para agrupar detecciones de una misma imagen.
+        keep_full_img : bool, optional
+            Si True se conserva siempre la detección de imagen completa
+            aunque ``min_sim`` o ``min_area`` la descarten.
         """
 
         if not os.path.isdir(image_folder):
@@ -900,6 +904,15 @@ class Pipeline_Landmark_Detection():
             if len(classes_np) > 0:
                 classes_np[0] = -1
 
+            full_det = None
+            if len(boxes_np) > 0:
+                full_det = (
+                    boxes_np[0].copy(),
+                    scores_np[0].copy(),
+                    classes_np[0].copy(),
+                    descriptors_np[0].copy(),
+                )
+
             if min_area > 0 and len(boxes_np) > 0:
                 img_area = (boxes_np[0, 2] - boxes_np[0, 0]) * (boxes_np[0, 3] - boxes_np[0, 1])
                 areas = (boxes_np[:, 2] - boxes_np[:, 0]) * (boxes_np[:, 3] - boxes_np[:, 1])
@@ -935,6 +948,17 @@ class Pipeline_Landmark_Detection():
                 scores_np = scores_np[keep_idx]
                 classes_np = classes_np[keep_idx]
                 descriptors_np = descriptors_np[keep_idx]
+
+            full_present = np.any(classes_np == -1)
+            if keep_full_img and full_det is not None and not full_present:
+                boxes_np = np.vstack([full_det[0], boxes_np]) if boxes_np.size else full_det[0][None, :]
+                scores_np = np.hstack([full_det[1], scores_np]) if scores_np.size else np.array([full_det[1]])
+                classes_np = np.hstack([full_det[2], classes_np]) if classes_np.size else np.array([full_det[2]])
+                descriptors_np = (
+                    np.vstack([full_det[3], descriptors_np])
+                    if descriptors_np.size
+                    else full_det[3][None, :]
+                )
 
             if boxes_np.shape[0] == 0:
                 continue
