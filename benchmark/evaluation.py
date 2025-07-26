@@ -426,7 +426,9 @@ def show_inference_example(
     plt.tight_layout()
     plt.show()
 
-def save_evaluation_result(results: dict, results_bbox: dict, path: str, config: dict) -> None:
+def save_evaluation_result(
+    results: dict, path: str, config: dict, results_bbox: dict | None = None
+) -> None:
     """Store evaluation metrics and configuration in a JSON file.
 
     This helper collects the results returned by :func:`run_evaluation` or
@@ -441,6 +443,8 @@ def save_evaluation_result(results: dict, results_bbox: dict, path: str, config:
         Destination JSON file where results will be stored.
     config : dict
         Configuration parameters relevant to the evaluation run.
+    results_bbox : dict | None, optional
+        Additional bounding box metrics to store alongside ``results``.
     """
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -455,7 +459,10 @@ def save_evaluation_result(results: dict, results_bbox: dict, path: str, config:
         except Exception:
             data = []
 
-    data.append({"results": results, "results_bbox": results_bbox, "config": config})
+    entry = {"results": results, "config": config}
+    if results_bbox is not None:
+        entry["results_bbox"] = results_bbox
+    data.append(entry)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
