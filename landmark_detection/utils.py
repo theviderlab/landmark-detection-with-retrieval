@@ -217,7 +217,6 @@ def show_similarity_search(
     plt.tight_layout()
     plt.show()
 
-
 def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_dir: str) -> None:
     """Guarda la base de datos de descriptores y el mapeo de etiquetas.
 
