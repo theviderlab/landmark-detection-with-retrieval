@@ -17,6 +17,7 @@ import android.widget.ImageView
 import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.ViewNode2
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -225,7 +226,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun placeMarker(det: Detection) {
-        val frame = sceneView.session.currentFrame ?: return
+        val frame = sceneView.session?.updateOrNull() ?: return
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
         val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
@@ -237,14 +238,19 @@ class MainActivity : AppCompatActivity() {
             currentAnchorNode = null
         }
 
-        val anchor = hit.createAnchor()
+        val anchor = hit.createAnchorOrNull() ?: return
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
-        val viewNode = io.github.sceneview.node.ViewNode(
-            sceneView.engine,
-            sceneView.modelLoader,
-            sceneView.viewNodeWindowManager
+
+        val view = layoutInflater.inflate(R.layout.marker_view, null)
+        val wm = sceneView.viewNodeWindowManager
+            ?: ViewNode2.WindowManager(this)
+        val viewNode = ViewNode2(
+            engine = sceneView.engine,
+            windowManager = wm,
+            materialLoader = sceneView.materialLoader,
+            view = view
         )
-        viewNode.loadView(this, R.layout.marker_view, {}, { _, _ -> })
+
         anchorNode.addChildNode(viewNode)
         sceneView.addChildNode(anchorNode)
         currentAnchorNode = anchorNode
