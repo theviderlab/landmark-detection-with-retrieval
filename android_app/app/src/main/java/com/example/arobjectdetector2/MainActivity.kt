@@ -15,7 +15,8 @@ import androidx.core.content.ContextCompat
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.view.WindowManager
-import io.github.sceneview.SceneView
+import io.github.sceneview.ar.ARSceneView
+import io.github.sceneview.node.ModelNode
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -38,7 +39,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: BoxOverlay
-    private lateinit var sceneView: SceneView
+    private lateinit var sceneView: ARSceneView
     private lateinit var cameraExecutor: ExecutorService
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
@@ -54,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         previewView = findViewById(R.id.previewView)
         overlay     = findViewById(R.id.overlay)
         sceneView   = findViewById(R.id.sceneView)
-        sceneView.onCreate(this)
+        sceneView.lifecycle = lifecycle
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // DEBUG: carga la imagen fija solo una vez
@@ -200,18 +201,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        sceneView.onResume()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onPause() {
         super.onPause()
-        sceneView.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
     override fun onDestroy() {
         super.onDestroy()
-        sceneView.onDestroy()
         clearMarkers()
         cameraExecutor.shutdown()
         detector?.close()
@@ -227,7 +225,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun placeMarker(det: Detection) {
-        val frame = sceneView.arSession?.currentFrame ?: return
+        val frame = sceneView.session.currentFrame ?: return
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
         val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
@@ -244,7 +242,7 @@ class MainActivity : AppCompatActivity() {
         val viewNode = io.github.sceneview.node.ViewNode(
             sceneView.engine,
             sceneView.modelLoader,
-            sceneView.viewAttachmentManager
+            sceneView.viewNodeWindowManager
         )
         viewNode.loadView(this, R.layout.marker_view, {}, { _, _ -> })
         anchorNode.addChildNode(viewNode)
