@@ -63,6 +63,7 @@ dependencies {
 
     // Version catalog – SceneView (si lo usas después)
     implementation(libs.sceneviewAr)
+    implementation(libs.sceneview)
 
     // Tests
     testImplementation(libs.junit)
