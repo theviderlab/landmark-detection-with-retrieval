@@ -44,7 +44,8 @@ class MainActivity : AppCompatActivity() {
     private var detector: YoloDetector? = null  // ← Nuevo
     private var staticBitmap: Bitmap? = null
     private var lastDetections: List<Detection> = emptyList()
-    private val markerNodes = mutableListOf<io.github.sceneview.ar.node.AnchorNode>()
+    /** Currently placed anchor in the scene. */
+    private var currentAnchorNode: io.github.sceneview.ar.node.AnchorNode? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -218,11 +219,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearMarkers() {
-        markerNodes.forEach { node ->
+        currentAnchorNode?.let { node ->
             sceneView.removeChildNode(node)
             node.destroy()
+            currentAnchorNode = null
         }
-        markerNodes.clear()
     }
 
     private fun placeMarker(det: Detection) {
@@ -230,6 +231,14 @@ class MainActivity : AppCompatActivity() {
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
         val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
+
+        // Remove previous anchor if present
+        currentAnchorNode?.let { node ->
+            sceneView.removeChildNode(node)
+            node.destroy()
+            currentAnchorNode = null
+        }
+
         val anchor = hit.createAnchor()
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
         val viewNode = io.github.sceneview.node.ViewNode(
@@ -240,7 +249,7 @@ class MainActivity : AppCompatActivity() {
         viewNode.loadView(this, R.layout.marker_view, {}, { _, _ -> })
         anchorNode.addChildNode(viewNode)
         sceneView.addChildNode(anchorNode)
-        markerNodes.add(anchorNode)
+        currentAnchorNode = anchorNode
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
