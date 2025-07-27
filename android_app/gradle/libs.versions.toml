@@ -41,6 +41,7 @@ googleArcore = { module = "com.google.ar:core",        version.ref = "arcore" }
 androidxAppcompat = { group = "androidx.appcompat",        name = "appcompat",             version.ref = "appcompat" }
 material         = { group = "com.google.android.material", name = "material",  version.ref = "material" }
 sceneviewAr = { group = "io.github.sceneview", name = "arsceneview", version.ref = "sceneview" }
+sceneview = { group = "io.github.sceneview", name = "sceneview", version.ref = "sceneview" }
 
 cameraCore       = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
 cameraCamera2    = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
