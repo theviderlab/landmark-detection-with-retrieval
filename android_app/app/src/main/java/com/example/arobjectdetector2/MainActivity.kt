@@ -18,6 +18,7 @@ import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.node.ViewNode2
+import io.github.sceneview.ar.arcore.createAnchorOrNull
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
