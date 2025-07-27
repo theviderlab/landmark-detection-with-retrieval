@@ -294,7 +294,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun placeMarker(modelFileLocation: String = "file:///android_asset/arrow.glb") {
-        val node = ModelNode(modelFileLocation)
+        val modelInstance = sceneView.modelLoader.createModelInstance(modelFileLocation)
+        val node = ModelNode(modelInstance)
         sceneView.addChildNode(node)
     }
 
