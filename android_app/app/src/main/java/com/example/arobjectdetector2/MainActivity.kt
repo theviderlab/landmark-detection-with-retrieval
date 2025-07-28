@@ -33,6 +33,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
         private const val CAMERA_PERMISSION_REQUEST = 1
         private const val USE_STATIC_FRAME = false
+        /** Pixel distance threshold to recreate the AR anchor. */
+        private const val ANCHOR_MOVE_THRESHOLD_PX = 50f
 
         // Cache the descriptor database in memory so it is loaded only once
         private var descriptorBytes: ByteArray? = null
@@ -49,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private var lastDetections: List<Detection> = emptyList()
     /** Currently placed anchor in the scene. */
     private var currentAnchorNode: io.github.sceneview.ar.node.AnchorNode? = null
+    /** Detection used to place the currentAnchorNode. */
+    private var currentAnchorDetection: Detection? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -223,6 +227,7 @@ class MainActivity : AppCompatActivity() {
             sceneView.removeChildNode(node)
             node.destroy()
             currentAnchorNode = null
+            currentAnchorDetection = null
         }
     }
 
@@ -256,6 +261,7 @@ class MainActivity : AppCompatActivity() {
         anchorNode.addChildNode(viewNode)
         sceneView.addChildNode(anchorNode)
         currentAnchorNode = anchorNode
+        currentAnchorDetection = det
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
@@ -331,11 +337,28 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     overlay.setDetections(viewDetections)
-                    if (viewDetections != lastDetections) {
+
+                    val firstDet = viewDetections.firstOrNull()
+                    if (firstDet == null) {
                         clearMarkers()
                         lastDetections = viewDetections
-                        viewDetections.forEach { placeMarker(it) }
+                        return@runOnUiThread
                     }
+
+                    val prevDet = currentAnchorDetection
+                    if (prevDet == null) {
+                        clearMarkers()
+                        placeMarker(firstDet)
+                    } else {
+                        val dx = firstDet.box.centerX() - prevDet.box.centerX()
+                        val dy = firstDet.box.centerY() - prevDet.box.centerY()
+                        val distSq = dx * dx + dy * dy
+                        if (distSq > ANCHOR_MOVE_THRESHOLD_PX * ANCHOR_MOVE_THRESHOLD_PX) {
+                            clearMarkers()
+                            placeMarker(firstDet)
+                        }
+                    }
+                    lastDetections = viewDetections
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en YoloAnalyzer", e)
