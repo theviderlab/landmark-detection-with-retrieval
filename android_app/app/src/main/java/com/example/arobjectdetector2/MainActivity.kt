@@ -16,8 +16,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
-import io.github.sceneview.node.ViewNode2
 import io.github.sceneview.ar.arcore.createAnchorOrNull
+import io.github.sceneview.loaders.ModelLoader
+import io.github.sceneview.node.ModelNode
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var overlay: BoxOverlay
     private lateinit var sceneView: ARSceneView
+    private lateinit var modelLoader: ModelLoader
     private lateinit var cameraExecutor: ExecutorService
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
@@ -61,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         overlay     = findViewById(R.id.overlay)
         sceneView   = findViewById(R.id.sceneView)
         sceneView.lifecycle = lifecycle
+        modelLoader = ModelLoader(sceneView.engine, this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // DEBUG: carga la imagen fija solo una vez
@@ -247,17 +250,9 @@ class MainActivity : AppCompatActivity() {
         val anchor = hit.createAnchorOrNull() ?: return
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
 
-        val view = layoutInflater.inflate(R.layout.marker_view, null)
-        val wm = sceneView.viewNodeWindowManager
-            ?: ViewNode2.WindowManager(this)
-        val viewNode = ViewNode2(
-            engine = sceneView.engine,
-            windowManager = wm,
-            materialLoader = sceneView.materialLoader,
-            view = view
-        )
-
-        anchorNode.addChildNode(viewNode)
+        val modelInstance = modelLoader.createModelInstance("location.fbx")
+        val modelNode = ModelNode(modelInstance)
+        anchorNode.addChildNode(modelNode)
         sceneView.addChildNode(anchorNode)
         currentAnchorNode = anchorNode
         currentAnchorDetection = det
