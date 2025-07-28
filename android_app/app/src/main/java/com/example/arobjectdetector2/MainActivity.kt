@@ -44,6 +44,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var overlay: BoxOverlay
     private lateinit var sceneView: ARSceneView
+    /**
+     * Loader used to read 3-D assets from the app assets directory.
+     * A single instance is kept to create model nodes when anchors are placed.
+     */
     private lateinit var modelLoader: ModelLoader
     private lateinit var cameraExecutor: ExecutorService
     private var ortSession: OrtSession? = null
@@ -63,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         overlay     = findViewById(R.id.overlay)
         sceneView   = findViewById(R.id.sceneView)
         sceneView.lifecycle = lifecycle
+        // Initialize the loader that will create 3-D model instances
         modelLoader = ModelLoader(sceneView.engine, this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -250,6 +255,7 @@ class MainActivity : AppCompatActivity() {
         val anchor = hit.createAnchorOrNull() ?: return
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
 
+        // Load the marker model and attach it to the new anchor
         val modelInstance = modelLoader.createModelInstance("location.fbx")
         val modelNode = ModelNode(modelInstance)
         anchorNode.addChildNode(modelNode)

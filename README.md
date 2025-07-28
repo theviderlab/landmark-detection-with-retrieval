@@ -28,3 +28,12 @@ mapping on disk::
     export_places_db(places_db, id_to_name, "./db")
 
 This will create ``db/places_db.bin`` and ``db/label_map.json``.
+
+## Android AR demo
+
+The sample application in `android_app` now uses a 3‑D marker model for
+placing anchors. The file `location.fbx` must be located in
+`app/src/main/assets` and is loaded with `ModelLoader` at runtime. When a
+detection becomes an anchor the model is instantiated and remains fixed in
+world space, replacing the 2‑D icon that was previously drawn on the
+overlay.
