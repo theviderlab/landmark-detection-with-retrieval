@@ -16,7 +16,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
-import io.github.sceneview.node.ModelNode
 import io.github.sceneview.node.ViewNode2
 import io.github.sceneview.ar.arcore.createAnchorOrNull
 import ai.onnxruntime.OrtEnvironment
@@ -301,11 +300,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun placeMarker(modelFileLocation: String = "file:///android_asset/arrow.glb") {
-        val modelInstance = sceneView.modelLoader.createModelInstance(modelFileLocation)
-        val node = ModelNode(modelInstance)
-        sceneView.addChildNode(node)
-    }
 
     private inner class YoloAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
