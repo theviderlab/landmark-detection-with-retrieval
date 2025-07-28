@@ -20,6 +20,7 @@ import io.github.sceneview.ar.arcore.createAnchorOrNull
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
 import com.google.ar.core.Pose
+import com.google.ar.core.TrackingState
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -242,6 +243,10 @@ class MainActivity : AppCompatActivity() {
     private fun placeMarker(det: Detection) {
         // Obtain the latest ARCore frame already handled by ARSceneView
         val frame = sceneView.session?.frame ?: return
+        if (frame.camera.trackingState != TrackingState.TRACKING) {
+            Log.w(TAG, "Cannot place marker: camera tracking state is ${frame.camera.trackingState}")
+            return
+        }
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
         val hit = frame.hitTest(centerX, centerY).firstOrNull()
