@@ -227,7 +227,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun placeMarker(det: Detection) {
-        val frame = sceneView.session?.updateOrNull() ?: return
+        // Obtain the latest ARCore frame already handled by ARSceneView
+        val frame = sceneView.session?.frame ?: return
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
         val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
