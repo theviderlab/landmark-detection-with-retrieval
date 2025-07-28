@@ -227,7 +227,7 @@ class MainActivity : AppCompatActivity() {
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
 
         // Load the marker model and attach it to the new anchor
-        val modelInstance = modelLoader.createModelInstance("location.fbx")
+        val modelInstance = modelLoader.createModelInstance("location.glb")
         val modelNode = ModelNode(modelInstance)
         anchorNode.addChildNode(modelNode)
         sceneView.addChildNode(anchorNode)
