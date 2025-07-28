@@ -45,10 +45,10 @@ class BoxOverlay @JvmOverloads constructor(
         color = 0xffff0000.toInt()
         textSize = 48f
     }
-    private val locationBitmap =
-        context.drawableToBitmap(R.drawable.ic_location_3d).let {
-            Bitmap.createScaledBitmap(it, it.width * 2, it.height * 2, true)
-        }
+    // val locationBitmap =
+    //     context.drawableToBitmap(R.drawable.ic_location_3d).let {
+    //         Bitmap.createScaledBitmap(it, it.width * 2, it.height * 2, true)
+    //     }
     /** Reusable rectangle to avoid allocations during drawing. */
     private val debugRect = RectF()
     private var detections: List<Detection> = emptyList()
@@ -65,13 +65,13 @@ class BoxOverlay @JvmOverloads constructor(
             // canvas.drawRect(r, boxPaint)
 
             val centerX = r.centerX()
-            val iconLeft = centerX - locationBitmap.width / 2f
-            val iconTop = r.top - locationBitmap.height
-            canvas.drawBitmap(locationBitmap, iconLeft, iconTop, null)
+            // val iconLeft = centerX - locationBitmap.width / 2f
+            // val iconTop = r.top - locationBitmap.height
+            // canvas.drawBitmap(locationBitmap, iconLeft, iconTop, null)
 
             val text = det.label
             val overlayWidth = width.toFloat()
-            val textY = iconTop + locationBitmap.height + textPaint.textSize
+            val textY = r.top + textPaint.textSize
 
             var remaining = text
             var lineIndex = 0
