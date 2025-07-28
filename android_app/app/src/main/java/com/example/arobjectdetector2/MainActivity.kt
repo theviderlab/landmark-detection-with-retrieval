@@ -19,6 +19,7 @@ import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.ar.arcore.createAnchorOrNull
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
+import com.google.ar.core.Pose
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -243,7 +244,17 @@ class MainActivity : AppCompatActivity() {
         val frame = sceneView.session?.frame ?: return
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
-        val hit = frame.hitTest(centerX, centerY).firstOrNull() ?: return
+        val hit = frame.hitTest(centerX, centerY).firstOrNull()
+
+        // Determine anchor. If hit-test succeeds use that anchor, otherwise
+        // create a floating anchor one meter in front of the camera.
+        val anchor = if (hit != null) {
+            hit.createAnchorOrNull()
+        } else {
+            val camPose = frame.camera.pose
+            val pose = camPose.compose(Pose.makeTranslation(0f, 0f, -1f))
+            sceneView.session?.createAnchor(pose)
+        } ?: return
 
         // Remove previous anchor if present
         currentAnchorNode?.let { node ->
@@ -252,7 +263,6 @@ class MainActivity : AppCompatActivity() {
             currentAnchorNode = null
         }
 
-        val anchor = hit.createAnchorOrNull() ?: return
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
 
         // Load the marker model and attach it to the new anchor
