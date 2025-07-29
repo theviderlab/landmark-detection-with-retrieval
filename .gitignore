@@ -10,3 +10,4 @@ landmark_detection/__pycache__/
 *.onnx
 *.pt
 /configs
+android_app/local.properties
