@@ -24,7 +24,7 @@ The minimum supported Android version is 24 and a device must support ARCore wit
 
 ## Building and running
 
-1. Open `android_app2` in Android Studio.
+1. Open `android_app` in Android Studio.
 2. Copy `pipeline.onnx`, `places_db.bin`, `label_map.json` and `location.glb` from `android_app/app/src/main/assets` into the `assets` folder of this module.
 3. Connect an ARCore‑capable Android device (API 24+).
 4. Build and run the `app` configuration from Android Studio or execute `./gradlew installDebug`.
