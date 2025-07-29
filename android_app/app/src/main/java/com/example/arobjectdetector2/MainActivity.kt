@@ -24,6 +24,8 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import android.view.View
+import android.opengl.Matrix
+import java.nio.ByteOrder
 
 class MainActivity : AppCompatActivity() {
 
@@ -213,17 +215,53 @@ class MainActivity : AppCompatActivity() {
         }
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
-        val hit = frame.hitTest(centerX, centerY).firstOrNull()
 
-        // Determine anchor. If hit-test succeeds use that anchor, otherwise
-        // create a floating anchor one meter in front of the camera.
-        val anchor = if (hit != null) {
-            hit.createAnchorOrNull()
-        } else {
-            val camPose = frame.camera.pose
-            val pose = camPose.compose(Pose.makeTranslation(0f, 0f, -1f))
-            sceneView.session?.createAnchor(pose)
-        } ?: return
+        // Read depth at the detection center in screen coordinates
+        val depthImage = runCatching { frame.acquireDepthImage() }.getOrNull()
+        val depthMeters = depthImage?.let { img ->
+            val depthW = img.width
+            val depthH = img.height
+            val dx = ((centerX / sceneView.width) * depthW).toInt().coerceIn(0, depthW - 1)
+            val dy = ((centerY / sceneView.height) * depthH).toInt().coerceIn(0, depthH - 1)
+            val plane = img.planes[0]
+            val rowStride = plane.rowStride
+            val pxStride = plane.pixelStride
+            val buffer = plane.buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val index = dy * rowStride + dx * pxStride
+            if (index >= 0 && index <= buffer.capacity() - 2) {
+                buffer.position(index)
+                (buffer.short.toInt() and 0xFFFF) / 1000f
+            } else {
+                Float.NaN
+            }
+        } ?: Float.NaN
+        depthImage?.close()
+
+        // Convert 2-D screen point to a 3-D coordinate using view/projection matrices
+        val projMatrix = FloatArray(16)
+        frame.camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
+        val viewMatrix = FloatArray(16)
+        frame.camera.getViewMatrix(viewMatrix, 0)
+        val viewProj = FloatArray(16)
+        android.opengl.Matrix.multiplyMM(viewProj, 0, projMatrix, 0, viewMatrix, 0)
+        val invViewProj = FloatArray(16)
+        android.opengl.Matrix.invertM(invViewProj, 0, viewProj, 0)
+        val ndcX = 2f * centerX / sceneView.width - 1f
+        val ndcY = 1f - 2f * centerY / sceneView.height
+        val clip = floatArrayOf(ndcX, ndcY, -1f, 1f)
+        val out = FloatArray(4)
+        android.opengl.Matrix.multiplyMV(out, 0, invViewProj, 0, clip, 0)
+        for (i in 0 until 3) out[i] /= out[3]
+        val dir = floatArrayOf(out[0], out[1], out[2])
+        val norm = kotlin.math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
+        dir[0] /= norm
+        dir[1] /= norm
+        dir[2] /= norm
+
+        val depth = if (depthMeters.isNaN() || depthMeters <= 0f) 2f else depthMeters
+        val translation = floatArrayOf(dir[0] * depth, dir[1] * depth, dir[2] * depth)
+        val pose = frame.camera.pose.compose(Pose.makeTranslation(translation))
+        val anchor = sceneView.session?.createAnchor(pose) ?: return
 
         // Remove previous anchor if present
         currentAnchorNode?.let { node ->
