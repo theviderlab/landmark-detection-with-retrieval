@@ -8,6 +8,12 @@ inputs**:
 2. `places_db` – database descriptors concatenated with their ``place_id``
    as a tensor with shape ``(N, C + 1)``
 
+## Installation
+
+Install the required packages before running the tests::
+
+    pip install -r requirements.txt
+
 The model internally computes the `[w, h]` tensor from the input image using
 dynamic shape operations so it can be traced without constant folding. This
 size information is propagated through the detector and extractor so
