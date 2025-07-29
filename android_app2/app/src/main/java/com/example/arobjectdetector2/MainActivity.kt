@@ -322,9 +322,19 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private inner class YoloAnalyzer {
+    private inner class YoloAnalyzer(
+        private val intervalMs: Long = 1000L
+    ) {
+        private var lastDetectionTime: Long = 0L
+
         fun analyze(frame: com.google.ar.core.Frame) {
             val det = detector ?: return
+
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastDetectionTime < intervalMs) {
+                return
+            }
+            lastDetectionTime = now
 
             try {
                 val bmp = if (USE_STATIC_FRAME) {
