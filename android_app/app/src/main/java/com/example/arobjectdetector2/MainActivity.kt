@@ -38,6 +38,9 @@ class MainActivity : AppCompatActivity() {
         // Cache the descriptor database in memory so it is loaded only once
         private var descriptorBytes: ByteArray? = null
 
+        /** When true, show the detection BoxOverlay for debugging purposes. */
+        private const val SHOW_BOX_OVERLAY = false
+
     }
 
     private lateinit var previewView: PreviewView
@@ -65,6 +68,7 @@ class MainActivity : AppCompatActivity() {
 
         previewView = findViewById(R.id.previewView)
         overlay     = findViewById(R.id.overlay)
+        overlay.visibility = if (SHOW_BOX_OVERLAY) View.VISIBLE else View.GONE
         sceneView   = findViewById(R.id.sceneView)
         sceneView.lifecycle = lifecycle
         sceneView.session?.let { session ->
@@ -126,7 +130,9 @@ class MainActivity : AppCompatActivity() {
                             vw,
                             vh
                         )
-                        overlay.setDetections(viewDets)
+                        if (SHOW_BOX_OVERLAY) {
+                            overlay.setDetections(viewDets)
+                        }
                     }
                 }
             }
@@ -276,6 +282,19 @@ class MainActivity : AppCompatActivity() {
         val modelInstance = modelLoader.createModelInstance("location.glb")
         val modelNode = ModelNode(modelInstance)
         anchorNode.addChildNode(modelNode)
+
+        // Create a child node displaying the detection label
+        val textNode = io.github.sceneview.node.ViewNode(sceneView.engine)
+        textNode.loadView(
+            this,
+            R.layout.label_renderable,
+            { e -> Log.e(TAG, "Error loading label view", e) }
+        ) { _, view ->
+            (view.findViewById(R.id.labelText) as android.widget.TextView).text = det.label
+        }
+        textNode.position = dev.romainguy.kotlin.math.Float3(0f, -0.1f, 0f)
+        anchorNode.addChildNode(textNode)
+
         sceneView.addChildNode(anchorNode)
         currentAnchorNode = anchorNode
         currentAnchorDetection = det
@@ -339,7 +358,9 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Detections on view: ${viewDetections.size}")
 
                 runOnUiThread {
-                    overlay.setDetections(viewDetections)
+                    if (SHOW_BOX_OVERLAY) {
+                        overlay.setDetections(viewDetections)
+                    }
 
                     val firstDet = viewDetections.firstOrNull()
                     if (firstDet == null) {
