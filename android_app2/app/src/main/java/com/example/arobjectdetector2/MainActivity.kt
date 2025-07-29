@@ -17,6 +17,8 @@ import io.github.sceneview.node.ModelNode
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.google.ar.core.Config
+import android.opengl.Matrix
+import java.nio.ByteOrder
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -24,6 +26,8 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import android.view.View
+import java.nio.ByteBuffer
+import kotlin.io.use
 
 class MainActivity : AppCompatActivity() {
 
@@ -213,16 +217,36 @@ class MainActivity : AppCompatActivity() {
         }
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
-        val hit = frame.hitTest(centerX, centerY).firstOrNull()
 
-        // Determine anchor. If hit-test succeeds use that anchor, otherwise
-        // create a floating anchor one meter in front of the camera.
-        val anchor = if (hit != null) {
-            hit.createAnchorOrNull()
-        } else {
-            val camPose = frame.camera.pose
-            val pose = camPose.compose(Pose.makeTranslation(0f, 0f, -1f))
-            sceneView.session?.createAnchor(pose)
+        // Try to read depth at the detection center
+        val depthImage = runCatching { frame.acquireDepthImage() }.getOrNull()
+        val anchor = depthImage?.use { img ->
+            val px = (centerX / sceneView.width * img.width).toInt()
+            val py = (centerY / sceneView.height * img.height).toInt()
+            val plane = img.planes[0]
+            val buffer = plane.buffer.order(ByteOrder.LITTLE_ENDIAN)
+            val index = py * plane.rowStride + px * plane.pixelStride
+            if (index >= 0 && index + 2 <= buffer.capacity()) {
+                val depthMm = buffer.getShort(index).toInt() and 0xFFFF
+                val depth = depthMm / 1000f
+                if (depth > 0f) {
+                    val proj = FloatArray(16).also { frame.camera.getProjectionMatrix(it, 0, 0.1f, 100f) }
+                    val view = FloatArray(16).also { frame.camera.getViewMatrix(it, 0) }
+                    val world = screenToWorld(centerX, centerY, depth, proj, view, sceneView.width, sceneView.height)
+                    val pose = Pose.makeTranslation(world[0], world[1], world[2])
+                    sceneView.session?.createAnchor(pose)
+                } else null
+            } else null
+        } ?: run {
+            // Fallback to hit-test based anchoring
+            val hit = frame.hitTest(centerX, centerY).firstOrNull()
+            if (hit != null) {
+                hit.createAnchorOrNull()
+            } else {
+                val camPose = frame.camera.pose
+                val pose = camPose.compose(Pose.makeTranslation(0f, 0f, -1f))
+                sceneView.session?.createAnchor(pose)
+            }
         } ?: return
 
         // Remove previous anchor if present
@@ -272,6 +296,32 @@ class MainActivity : AppCompatActivity() {
         )
         val bmp = BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
         return bmp
+    }
+
+    private fun screenToWorld(
+        x: Float,
+        y: Float,
+        depth: Float,
+        projection: FloatArray,
+        view: FloatArray,
+        width: Int,
+        height: Int
+    ): FloatArray {
+        val viewProj = FloatArray(16)
+        val inverted = FloatArray(16)
+        Matrix.multiplyMM(viewProj, 0, projection, 0, view, 0)
+        Matrix.invertM(inverted, 0, viewProj, 0)
+
+        val ndcX = (2f * x / width) - 1f
+        val ndcY = 1f - 2f * y / height
+        val near = 0.1f
+        val far = 100f
+        val ndcZ = (2f * depth - near - far) / (far - near)
+        val clip = floatArrayOf(ndcX, ndcY, ndcZ, 1f)
+        val world = FloatArray(4)
+        Matrix.multiplyMV(world, 0, inverted, 0, clip, 0)
+        val w = world[3]
+        return floatArrayOf(world[0] / w, world[1] / w, world[2] / w)
     }
 
 
