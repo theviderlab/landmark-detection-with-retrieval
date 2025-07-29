@@ -61,7 +61,6 @@ class MainActivity : AppCompatActivity() {
     /** Placed markers indexed by detection ID. */
     private val markers = mutableMapOf<Int, io.github.sceneview.ar.node.AnchorNode>()
     private val lastDetectionsMap = mutableMapOf<Int, Detection>()
-    private var lastDetectionTime = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -333,33 +332,43 @@ class MainActivity : AppCompatActivity() {
 
 
     private inner class YoloAnalyzer {
+        private var lastDetectionTime = 0L
+        private var lastViewDetections: List<Detection> = emptyList()
+
         fun analyze(frame: com.google.ar.core.Frame) {
             val det = detector ?: return
 
             val now = android.os.SystemClock.uptimeMillis()
-            if (now - lastDetectionTime < DETECTION_INTERVAL_MS) return
-            lastDetectionTime = now
+            val shouldDetect = now - lastDetectionTime >= DETECTION_INTERVAL_MS
+
 
             try {
-                val bmp = if (USE_STATIC_FRAME) {
-                    val sb = staticBitmap
-                    if (sb == null) {
-                        Log.e(TAG, "Static bitmap not available")
-                        return
+                val viewDetections = if (shouldDetect) {
+                    val bmp = if (USE_STATIC_FRAME) {
+                        val sb = staticBitmap
+                        if (sb == null) {
+                            Log.e(TAG, "Static bitmap not available")
+                            return
+                        }
+                        sb
+                    } else {
+                        val image = runCatching { frame.acquireCameraImage() }.getOrNull() ?: return
+                        val b = cameraImageToBitmap(image)
+                        image.close()
+                        b
                     }
-                    sb
-                } else {
-                    val image = runCatching { frame.acquireCameraImage() }.getOrNull() ?: return
-                    val b = cameraImageToBitmap(image)
-                    image.close()
-                    b
-                }
-                Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
+                    Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
 
-                val vw = if (USE_STATIC_FRAME) overlay.width else sceneView.width
-                val vh = if (USE_STATIC_FRAME) overlay.height else sceneView.height
-                val viewDetections = det.detectOnView(bmp, vw, vh)
-                Log.d(TAG, "Detections on view: ${viewDetections.size}")
+                    val vw = if (USE_STATIC_FRAME) overlay.width else sceneView.width
+                    val vh = if (USE_STATIC_FRAME) overlay.height else sceneView.height
+                    val detections = det.detectOnView(bmp, vw, vh)
+                    lastDetectionTime = now
+                    lastViewDetections = detections
+                    Log.d(TAG, "Detections on view: ${detections.size}")
+                    detections
+                } else {
+                    lastViewDetections
+                }
 
                 runOnUiThread {
                     if (SHOW_BOX_OVERLAY) {
