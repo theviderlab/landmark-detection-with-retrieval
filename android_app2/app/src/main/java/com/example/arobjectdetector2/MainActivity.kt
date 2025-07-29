@@ -55,11 +55,10 @@ class MainActivity : AppCompatActivity() {
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
     private var staticBitmap: Bitmap? = null
-    private var lastDetections: List<Detection> = emptyList()
-    /** Currently placed anchor in the scene. */
-    private var currentAnchorNode: io.github.sceneview.ar.node.AnchorNode? = null
-    /** Detection used to place the currentAnchorNode. */
-    private var currentAnchorDetection: Detection? = null
+    /** Last detections mapped by class id. */
+    private var lastDetections: Map<Int, Detection> = emptyMap()
+    /** Active anchors indexed by landmark id. */
+    private val anchorNodes = mutableMapOf<Int, io.github.sceneview.ar.node.AnchorNode>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -200,20 +199,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearMarkers() {
-        currentAnchorNode?.let { node ->
+        anchorNodes.values.forEach { node ->
             sceneView.removeChildNode(node)
             node.destroy()
-            currentAnchorNode = null
-            currentAnchorDetection = null
         }
+        anchorNodes.clear()
+        lastDetections = emptyMap()
     }
 
-    private fun placeMarker(det: Detection) {
+    private fun placeMarker(det: Detection): io.github.sceneview.ar.node.AnchorNode? {
         // Obtain the latest ARCore frame already handled by ARSceneView
-        val frame = sceneView.session?.frame ?: return
+        val frame = sceneView.session?.frame ?: return null
         if (frame.camera.trackingState != TrackingState.TRACKING) {
             Log.w(TAG, "Cannot place marker: camera tracking state is ${frame.camera.trackingState}")
-            return
+            return null
         }
         val centerX = det.box.centerX()
         val centerY = det.box.centerY()
@@ -247,13 +246,12 @@ class MainActivity : AppCompatActivity() {
                 val pose = camPose.compose(Pose.makeTranslation(0f, 0f, -1f))
                 sceneView.session?.createAnchor(pose)
             }
-        } ?: return
+        } ?: return null
 
-        // Remove previous anchor if present
-        currentAnchorNode?.let { node ->
+        // If an anchor already exists for this id, remove it
+        anchorNodes[det.cls]?.let { node ->
             sceneView.removeChildNode(node)
             node.destroy()
-            currentAnchorNode = null
         }
 
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
@@ -263,8 +261,7 @@ class MainActivity : AppCompatActivity() {
         val modelNode = ModelNode(modelInstance)
         anchorNode.addChildNode(modelNode)
         sceneView.addChildNode(anchorNode)
-        currentAnchorNode = anchorNode
-        currentAnchorDetection = det
+        return anchorNode
     }
 
     private fun cameraImageToBitmap(image: Image): Bitmap {
@@ -353,27 +350,43 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     overlay.setDetections(viewDetections)
 
-                    val firstDet = viewDetections.firstOrNull()
-                    if (firstDet == null) {
+                    if (viewDetections.isEmpty()) {
                         clearMarkers()
-                        lastDetections = viewDetections
                         return@runOnUiThread
                     }
 
-                    val prevDet = currentAnchorDetection
-                    if (prevDet == null) {
-                        clearMarkers()
-                        placeMarker(firstDet)
-                    } else {
-                        val dx = firstDet.box.centerX() - prevDet.box.centerX()
-                        val dy = firstDet.box.centerY() - prevDet.box.centerY()
-                        val distSq = dx * dx + dy * dy
-                        if (distSq > ANCHOR_MOVE_THRESHOLD_PX * ANCHOR_MOVE_THRESHOLD_PX) {
-                            clearMarkers()
-                            placeMarker(firstDet)
+                    val detMap = viewDetections.associateBy { it.cls }
+
+                    // Remove anchors for landmarks not detected anymore
+                    val itAnchors = anchorNodes.entries.iterator()
+                    while (itAnchors.hasNext()) {
+                        val (id, node) = itAnchors.next()
+                        if (!detMap.containsKey(id)) {
+                            sceneView.removeChildNode(node)
+                            node.destroy()
+                            itAnchors.remove()
                         }
                     }
-                    lastDetections = viewDetections
+
+                    for (det in viewDetections) {
+                        val prevDet = lastDetections[det.cls]
+                        val node = anchorNodes[det.cls]
+                        if (node == null) {
+                            placeMarker(det)?.let { anchorNodes[det.cls] = it }
+                        } else if (prevDet != null) {
+                            val dx = det.box.centerX() - prevDet.box.centerX()
+                            val dy = det.box.centerY() - prevDet.box.centerY()
+                            val distSq = dx * dx + dy * dy
+                            if (distSq > ANCHOR_MOVE_THRESHOLD_PX * ANCHOR_MOVE_THRESHOLD_PX) {
+                                sceneView.removeChildNode(node)
+                                node.destroy()
+                                anchorNodes.remove(det.cls)
+                                placeMarker(det)?.let { anchorNodes[det.cls] = it }
+                            }
+                        }
+                    }
+
+                    lastDetections = detMap
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en YoloAnalyzer", e)
