@@ -11,7 +11,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
-import io.github.sceneview.ar.arcore.createAnchorOrNull
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
 import com.google.ar.core.Pose
@@ -40,6 +39,8 @@ class MainActivity : AppCompatActivity() {
 
         /** When true, show the detection BoxOverlay for debugging purposes. */
         private const val SHOW_BOX_OVERLAY = false
+        /** Minimum time between detection runs. */
+        private const val DETECTION_INTERVAL_MS = 1000L
 
     }
 
@@ -56,11 +57,11 @@ class MainActivity : AppCompatActivity() {
     private var ortSession: OrtSession? = null
     private var detector: YoloDetector? = null  // ← Nuevo
     private var staticBitmap: Bitmap? = null
-    private var lastDetections: List<Detection> = emptyList()
-    /** Currently placed anchor in the scene. */
-    private var currentAnchorNode: io.github.sceneview.ar.node.AnchorNode? = null
-    /** Detection used to place the currentAnchorNode. */
-    private var currentAnchorDetection: Detection? = null
+
+    /** Placed markers indexed by detection ID. */
+    private val markers = mutableMapOf<Int, io.github.sceneview.ar.node.AnchorNode>()
+    private val lastDetectionsMap = mutableMapOf<Int, Detection>()
+    private var lastDetectionTime = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,12 +205,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearMarkers() {
-        currentAnchorNode?.let { node ->
+        markers.values.forEach { node ->
             sceneView.removeChildNode(node)
             node.destroy()
-            currentAnchorNode = null
-            currentAnchorDetection = null
         }
+        markers.clear()
+        lastDetectionsMap.clear()
     }
 
     private fun placeMarker(det: Detection) {
@@ -269,11 +270,10 @@ class MainActivity : AppCompatActivity() {
         val pose = frame.camera.pose.compose(Pose.makeTranslation(translation))
         val anchor = sceneView.session?.createAnchor(pose) ?: return
 
-        // Remove previous anchor if present
-        currentAnchorNode?.let { node ->
+        // Remove previous anchor for this ID if present
+        markers[det.cls]?.let { node ->
             sceneView.removeChildNode(node)
             node.destroy()
-            currentAnchorNode = null
         }
 
         val anchorNode = io.github.sceneview.ar.node.AnchorNode(sceneView.engine, anchor)
@@ -296,8 +296,8 @@ class MainActivity : AppCompatActivity() {
         anchorNode.addChildNode(textNode)
 
         sceneView.addChildNode(anchorNode)
-        currentAnchorNode = anchorNode
-        currentAnchorDetection = det
+        markers[det.cls] = anchorNode
+        lastDetectionsMap[det.cls] = det
     }
 
     private fun cameraImageToBitmap(image: Image): Bitmap {
@@ -336,6 +336,10 @@ class MainActivity : AppCompatActivity() {
         fun analyze(frame: com.google.ar.core.Frame) {
             val det = detector ?: return
 
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastDetectionTime < DETECTION_INTERVAL_MS) return
+            lastDetectionTime = now
+
             try {
                 val bmp = if (USE_STATIC_FRAME) {
                     val sb = staticBitmap
@@ -362,27 +366,33 @@ class MainActivity : AppCompatActivity() {
                         overlay.setDetections(viewDetections)
                     }
 
-                    val firstDet = viewDetections.firstOrNull()
-                    if (firstDet == null) {
-                        clearMarkers()
-                        lastDetections = viewDetections
-                        return@runOnUiThread
-                    }
-
-                    val prevDet = currentAnchorDetection
-                    if (prevDet == null) {
-                        clearMarkers()
-                        placeMarker(firstDet)
-                    } else {
-                        val dx = firstDet.box.centerX() - prevDet.box.centerX()
-                        val dy = firstDet.box.centerY() - prevDet.box.centerY()
-                        val distSq = dx * dx + dy * dy
-                        if (distSq > ANCHOR_MOVE_THRESHOLD_PX * ANCHOR_MOVE_THRESHOLD_PX) {
-                            clearMarkers()
-                            placeMarker(firstDet)
+                    val currentIds = mutableSetOf<Int>()
+                    for (d in viewDetections) {
+                        currentIds.add(d.cls)
+                        val prevDet = lastDetectionsMap[d.cls]
+                        if (prevDet == null) {
+                            placeMarker(d)
+                        } else {
+                            val dx = d.box.centerX() - prevDet.box.centerX()
+                            val dy = d.box.centerY() - prevDet.box.centerY()
+                            val distSq = dx * dx + dy * dy
+                            if (distSq > ANCHOR_MOVE_THRESHOLD_PX * ANCHOR_MOVE_THRESHOLD_PX) {
+                                placeMarker(d)
+                            } else {
+                                lastDetectionsMap[d.cls] = d
+                            }
                         }
                     }
-                    lastDetections = viewDetections
+
+                    val toRemove = markers.keys - currentIds
+                    for (id in toRemove) {
+                        markers[id]?.let { node ->
+                            sceneView.removeChildNode(node)
+                            node.destroy()
+                        }
+                        markers.remove(id)
+                        lastDetectionsMap.remove(id)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en YoloAnalyzer", e)
