@@ -43,3 +43,6 @@ placing anchors. The file `location.fbx` must be located in
 detection becomes an anchor the model is instantiated and remains fixed in
 world space, replacing the 2‑D icon that was previously drawn on the
 overlay.
+
+For build and run instructions, see [`android_app/README.md`](android_app/README.md).
+`local.properties` is ignored by Git and must be created locally by Android Studio.
