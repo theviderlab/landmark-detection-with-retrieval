@@ -1,0 +1,7 @@
+numpy
+pandas
+pyyaml
+pytest
+tqdm
+torch
+onnxruntime
