@@ -16,6 +16,7 @@ import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
+import com.google.ar.core.Config
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.ByteArrayOutputStream
@@ -64,6 +65,13 @@ class MainActivity : AppCompatActivity() {
         overlay     = findViewById(R.id.overlay)
         sceneView   = findViewById(R.id.sceneView)
         sceneView.lifecycle = lifecycle
+        sceneView.session?.let { session ->
+            val config = Config(session).apply {
+                planeFindingMode = Config.PlaneFindingMode.DISABLED
+                depthMode = Config.DepthMode.AUTOMATIC
+            }
+            session.configure(config)
+        }
         // Initialize the loader that will create 3-D model instances
         modelLoader = ModelLoader(sceneView.engine, this)
         cameraExecutor = Executors.newSingleThreadExecutor()
