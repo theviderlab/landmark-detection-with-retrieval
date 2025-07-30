@@ -3,6 +3,8 @@ import cv2
 import yaml
 import numpy as np
 import json
+import pickle
+import pandas as pd
 import matplotlib.pyplot as plt
 
 def show_image(img_path):   
@@ -257,3 +259,54 @@ def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_di
 
     with open(os.path.join(output_dir, "label_map.json"), "w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2, ensure_ascii=False)
+
+
+def load_image_database(
+    df_pickle_path: str, descriptor_pickle_path: str
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+    """Carga ``df_result`` y ``descriptors_final`` y calcula ``places_db``.
+
+    Parameters
+    ----------
+    df_pickle_path : str
+        Ruta al archivo pickle con el :class:`pandas.DataFrame` guardado.
+    descriptor_pickle_path : str
+        Ruta al archivo pickle con la matriz de descriptores ``(N, C)``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``df_result`` cargado desde ``df_pickle_path``.
+    numpy.ndarray
+        ``descriptors_final`` cargado desde ``descriptor_pickle_path``.
+    numpy.ndarray
+        Matriz ``places_db`` resultante ``(N, C + 1)``.
+    """
+
+    df_result = pd.read_pickle(df_pickle_path)
+    with open(descriptor_pickle_path, "rb") as f:
+        descriptors_final = pickle.load(f)
+
+    if not isinstance(df_result, pd.DataFrame):
+        raise ValueError("df_pickle_path debe contener un pandas.DataFrame")
+
+    if not isinstance(descriptors_final, np.ndarray):
+        raise ValueError("descriptor_pickle_path debe contener un numpy.ndarray")
+
+    if len(df_result) != len(descriptors_final):
+        raise ValueError(
+            "El número de filas en el DataFrame no coincide con el número de descriptores."
+        )
+
+    filename_to_id: dict[str, int] = {}
+    ids: list[int] = []
+    for name in df_result["image_name"]:
+        if name not in filename_to_id:
+            filename_to_id[name] = len(filename_to_id)
+        ids.append(filename_to_id[name])
+    ids_np = np.array(ids, dtype=np.float32).reshape(-1, 1)
+    places_db = (
+        np.hstack([descriptors_final, ids_np]) if descriptors_final.size else ids_np
+    )
+
+    return df_result, descriptors_final, places_db
