@@ -13,6 +13,7 @@ import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.ViewNode
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.google.ar.core.Config
@@ -283,7 +284,7 @@ class MainActivity : AppCompatActivity() {
         anchorNode.addChildNode(modelNode)
 
         // Create a child node displaying the detection label
-        val textNode = io.github.sceneview.node.ViewNode(sceneView.engine)
+        val textNode = ViewNode(sceneView.engine, modelLoader, sceneView.viewAttachmentManager)
         textNode.loadView(
             this,
             R.layout.label_renderable,
