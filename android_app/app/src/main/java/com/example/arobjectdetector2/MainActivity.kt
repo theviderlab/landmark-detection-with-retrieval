@@ -15,6 +15,7 @@ import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.node.ViewNode2
+import io.github.sceneview.node.ViewNodeWindowManager
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.google.ar.core.Config
@@ -73,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         overlay.visibility = if (SHOW_BOX_OVERLAY) View.VISIBLE else View.GONE
         sceneView   = findViewById(R.id.sceneView)
         sceneView.lifecycle = lifecycle
+        sceneView.viewNodeWindowManager = ViewNodeWindowManager(this)
         sceneView.session?.let { session ->
             val config = Config(session).apply {
                 planeFindingMode = Config.PlaneFindingMode.DISABLED
@@ -385,6 +387,10 @@ class MainActivity : AppCompatActivity() {
                     for (d in viewDetections) {
                         currentIds.add(d.cls)
                         val prevDet = lastDetectionsMap[d.cls]
+                        if (sceneView.viewNodeWindowManager == null) {
+                            Log.w(TAG, "viewNodeWindowManager is null; skipping marker placement")
+                            continue
+                        }
                         if (prevDet == null) {
                             placeMarker(d)
                         } else {
