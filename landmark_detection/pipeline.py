@@ -37,7 +37,7 @@ class Pipeline_Landmark_Detection():
         mean: list[float] = [0.485, 0.456, 0.406],                                                      # extraction-preprocess
         std: list[float]  = [0.229, 0.224, 0.225],                                                      # extraction-preprocess
         rgem_pr: float   = 2.5,                                                                         # pooling
-        rgem_size: int   = 5,                                                                           # pooling
+        rgem_size: int   = 5,                                                                           # pooling (debe ser impar)
         gem_p: float     = 4.6,                                                                         # pooling
         sgem_ps: float   = 10.0,                                                                        # pooling
         sgem_infinity: bool = False,                                                                    # pooling

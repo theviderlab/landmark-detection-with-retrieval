@@ -80,7 +80,7 @@ class RGEM_Batch(nn.Module):
     def __init__(self, pr=2.5, size=5, eps=1e-6):
         super(RGEM_Batch, self).__init__()
         self.pr   = pr
-        self.size = size
+        self.size = size # Debe ser impar
         self.eps  = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -110,6 +110,9 @@ class RGEM_Batch(nn.Module):
 
         # 6) pooled = clamp(pooled, eps)^(1/pr)
         pooled = torch.clamp(pooled, min=self.eps).pow(1.0 / self.pr)  # (N, C, H, W)
+
+        print('pooled.size: ', pooled.size) # debug
+        print('x.size: ', x.size) # debug
 
         # 7) resultado final = 0.5 * pooled + 0.5 * x
         return 0.5 * pooled + 0.5 * x
