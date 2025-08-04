@@ -9,11 +9,12 @@ import androidx.camera.view.PreviewView
 import android.media.Image
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import android.view.WindowManager
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.ModelNode
-import io.github.sceneview.node.ViewNode
+import io.github.sceneview.node.ViewNode2
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.google.ar.core.Config
@@ -284,14 +285,14 @@ class MainActivity : AppCompatActivity() {
         anchorNode.addChildNode(modelNode)
 
         // Create a child node displaying the detection label
-        val textNode = ViewNode(sceneView.engine, modelLoader, sceneView.viewAttachmentManager)
-        textNode.loadView(
-            this,
-            R.layout.label_renderable,
-            { e -> Log.e(TAG, "Error loading label view", e) }
-        ) { _, view ->
-            (view.findViewById(R.id.labelText) as android.widget.TextView).text = det.label
-        }
+        val textNode = ViewNode2(
+            sceneView.engine,
+            sceneView.viewNodeWindowManager!!,
+            sceneView.materialLoader,
+            R.layout.label_renderable
+        )
+        textNode.layout.getChildAt(0)
+            .findViewById<TextView>(R.id.labelText).text = det.label
         textNode.position = dev.romainguy.kotlin.math.Float3(0f, -0.1f, 0f)
         anchorNode.addChildNode(textNode)
 
