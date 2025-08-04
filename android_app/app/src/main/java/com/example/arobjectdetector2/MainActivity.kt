@@ -285,9 +285,13 @@ class MainActivity : AppCompatActivity() {
         anchorNode.addChildNode(modelNode)
 
         // Create a child node displaying the detection label
+        val windowManager = sceneView.viewNodeWindowManager ?: run {
+            Log.w(TAG, "viewNodeWindowManager is null; marker not placed")
+            return
+        }
         val textNode = ViewNode2(
             sceneView.engine,
-            sceneView.viewNodeWindowManager!!,
+            windowManager,
             sceneView.materialLoader,
             R.layout.label_renderable
         )
