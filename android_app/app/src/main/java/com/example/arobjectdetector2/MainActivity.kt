@@ -77,7 +77,8 @@ class MainActivity : AppCompatActivity() {
         sceneView.viewNodeWindowManager = ViewNodeWindowManager(this)
         sceneView.session?.let { session ->
             val config = Config(session).apply {
-                planeFindingMode = Config.PlaneFindingMode.DISABLED
+                // Enable plane detection so hitTest can return reliable poses
+                planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                 depthMode = Config.DepthMode.AUTOMATIC
             }
             session.configure(config)
@@ -247,30 +248,46 @@ class MainActivity : AppCompatActivity() {
         } ?: Float.NaN
         depthImage?.close()
 
-        // Convert 2-D screen point to a 3-D coordinate using view/projection matrices
-        val projMatrix = FloatArray(16)
-        frame.camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
-        val viewMatrix = FloatArray(16)
-        frame.camera.getViewMatrix(viewMatrix, 0)
-        val viewProj = FloatArray(16)
-        android.opengl.Matrix.multiplyMM(viewProj, 0, projMatrix, 0, viewMatrix, 0)
-        val invViewProj = FloatArray(16)
-        android.opengl.Matrix.invertM(invViewProj, 0, viewProj, 0)
-        val ndcX = 2f * centerX / sceneView.width - 1f
-        val ndcY = 1f - 2f * centerY / sceneView.height
-        val clip = floatArrayOf(ndcX, ndcY, -1f, 1f)
-        val out = FloatArray(4)
-        android.opengl.Matrix.multiplyMV(out, 0, invViewProj, 0, clip, 0)
-        for (i in 0 until 3) out[i] /= out[3]
-        val dir = floatArrayOf(out[0], out[1], out[2])
-        val norm = kotlin.math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
-        dir[0] /= norm
-        dir[1] /= norm
-        dir[2] /= norm
+        // Try to obtain a safe pose from hitTest (planes or depth)
+        val hitPose = frame.hitTest(centerX, centerY).firstOrNull()?.hitPose
 
-        val depth = if (depthMeters.isNaN() || depthMeters <= 0f) 2f else depthMeters
-        val translation = floatArrayOf(dir[0] * depth, dir[1] * depth, dir[2] * depth)
-        val pose = frame.camera.pose.compose(Pose.makeTranslation(translation))
+        val pose = if (hitPose != null) {
+            hitPose
+        } else {
+            if (!depthMeters.isFinite() || depthMeters <= 0f) {
+                Log.w(TAG, "Cannot place marker: invalid depth and no hit result")
+                return
+            }
+
+            // Convert 2-D screen point to a 3-D coordinate using view/projection matrices
+            val projMatrix = FloatArray(16)
+            frame.camera.getProjectionMatrix(projMatrix, 0, 0.1f, 100f)
+            val viewMatrix = FloatArray(16)
+            frame.camera.getViewMatrix(viewMatrix, 0)
+            val viewProj = FloatArray(16)
+            android.opengl.Matrix.multiplyMM(viewProj, 0, projMatrix, 0, viewMatrix, 0)
+            val invViewProj = FloatArray(16)
+            android.opengl.Matrix.invertM(invViewProj, 0, viewProj, 0)
+            val ndcX = 2f * centerX / sceneView.width - 1f
+            val ndcY = 1f - 2f * centerY / sceneView.height
+            val clip = floatArrayOf(ndcX, ndcY, -1f, 1f)
+            val out = FloatArray(4)
+            android.opengl.Matrix.multiplyMV(out, 0, invViewProj, 0, clip, 0)
+            for (i in 0 until 3) out[i] /= out[3]
+            val dir = floatArrayOf(out[0], out[1], out[2])
+            val norm = kotlin.math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
+            dir[0] /= norm
+            dir[1] /= norm
+            dir[2] /= norm
+
+            val translation = floatArrayOf(
+                dir[0] * depthMeters,
+                dir[1] * depthMeters,
+                dir[2] * depthMeters
+            )
+            frame.camera.pose.compose(Pose.makeTranslation(translation))
+        }
+
         val anchor = sceneView.session?.createAnchor(pose) ?: return
 
         // Remove previous anchor for this ID if present
