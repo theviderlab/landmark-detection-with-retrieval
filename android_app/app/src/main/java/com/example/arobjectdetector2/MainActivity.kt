@@ -224,7 +224,7 @@ class MainActivity : AppCompatActivity() {
         val centerY = det.box.centerY()
 
         // Read depth at the detection center in screen coordinates
-        val depthImage = runCatching { frame.acquireDepthImage() }.getOrNull()
+        val depthImage = runCatching { frame.acquireDepthImage16Bits() }.getOrNull()
         val depthMeters = depthImage?.let { img ->
             val depthW = img.width
             val depthH = img.height
