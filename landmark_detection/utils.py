@@ -260,7 +260,6 @@ def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_di
     with open(os.path.join(output_dir, "label_map.json"), "w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2, ensure_ascii=False)
 
-
 def load_image_database(
     df_pickle_path: str, descriptor_pickle_path: str
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
