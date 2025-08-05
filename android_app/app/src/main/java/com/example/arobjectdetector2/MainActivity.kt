@@ -228,8 +228,7 @@ class MainActivity : AppCompatActivity() {
         val centerY = det.box.centerY()
 
         // Read depth at the detection center in screen coordinates
-        val depthImage = runCatching { frame.acquireDepthImage16Bits() }.getOrNull()
-        val depthMeters = depthImage?.let { img ->
+        val depthMeters = runCatching { frame.acquireDepthImage16Bits() }.getOrNull()?.use { img ->
             val depthW = img.width
             val depthH = img.height
             val dx = ((centerX / sceneView.width) * depthW).toInt().coerceIn(0, depthW - 1)
@@ -246,7 +245,6 @@ class MainActivity : AppCompatActivity() {
                 Float.NaN
             }
         } ?: Float.NaN
-        depthImage?.close()
 
         // Try to obtain a safe pose from hitTest (planes or depth)
         val hitPose = frame.hitTest(centerX, centerY).firstOrNull()?.hitPose
@@ -359,9 +357,16 @@ class MainActivity : AppCompatActivity() {
     private inner class YoloAnalyzer {
         private var lastDetectionTime = 0L
         private var lastViewDetections: List<Detection> = emptyList()
+        private var lastFrameTimestamp = 0L
 
         fun analyze(frame: com.google.ar.core.Frame) {
             val det = detector ?: return
+
+            val frameTs = frame.timestamp
+            if (frameTs <= lastFrameTimestamp) {
+                return
+            }
+            lastFrameTimestamp = frameTs
 
             val now = android.os.SystemClock.uptimeMillis()
             val shouldDetect = now - lastDetectionTime >= DETECTION_INTERVAL_MS
@@ -378,8 +383,7 @@ class MainActivity : AppCompatActivity() {
                         sb
                     } else {
                         val image = runCatching { frame.acquireCameraImage() }.getOrNull() ?: return
-                        val b = cameraImageToBitmap(image)
-                        image.close()
+                        val b = image.use { cameraImageToBitmap(it) }
                         b
                     }
                     Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
