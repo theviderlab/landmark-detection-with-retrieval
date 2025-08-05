@@ -21,13 +21,17 @@ import com.google.ar.core.TrackingState
 import com.google.ar.core.Config
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import android.view.View
 import android.opengl.Matrix
 import java.nio.ByteOrder
+import android.renderscript.Allocation
+import android.renderscript.Element
+import android.renderscript.RenderScript
+import android.renderscript.ScriptIntrinsicYuvToRGB
+import android.renderscript.Type
 
 class MainActivity : AppCompatActivity() {
 
@@ -168,7 +172,16 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val env = OrtEnvironment.getEnvironment()
-                ortSession = env.createSession(tmpFile.absolutePath, OrtSession.SessionOptions())
+                val sessionOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    try {
+                        addNnapi()
+                        Log.d(TAG, "NNAPI provider enabled")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "NNAPI not available: ${e.message}")
+                    }
+                }
+                ortSession = env.createSession(tmpFile.absolutePath, sessionOptions)
                 Log.d(TAG, "ORT session loaded correctly")
 
                 // Inicializa el detector
@@ -322,6 +335,7 @@ class MainActivity : AppCompatActivity() {
         lastDetectionsMap[det.cls] = det
     }
 
+    @Suppress("DEPRECATION")
     private fun cameraImageToBitmap(image: Image): Bitmap {
         val yBuffer = image.planes[0].buffer
         val uBuffer = image.planes[1].buffer
@@ -336,21 +350,20 @@ class MainActivity : AppCompatActivity() {
         vBuffer.get(nv21, ySize, vSize)
         uBuffer.get(nv21, ySize + vSize, uSize)
 
-        val yuvImage = YuvImage(
-            nv21,
-            ImageFormat.NV21,
-            image.width,
-            image.height,
-            null
-        )
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(
-            Rect(0, 0, image.width, image.height),
-            90,
-            out
-        )
-        val bmp = BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
-        return bmp
+        val rs = RenderScript.create(this)
+        val yuvType = Type.Builder(rs, Element.U8(rs)).setX(nv21.size)
+        val inAlloc = Allocation.createTyped(rs, yuvType.create(), Allocation.USAGE_SCRIPT)
+        val bitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+        val outAlloc = Allocation.createFromBitmap(rs, bitmap)
+
+        inAlloc.copyFrom(nv21)
+        val script = ScriptIntrinsicYuvToRGB.create(rs, Element.U8_4(rs))
+        script.setInput(inAlloc)
+        script.forEach(outAlloc)
+        outAlloc.copyTo(bitmap)
+
+        rs.destroy()
+        return bitmap
     }
 
 
@@ -374,7 +387,7 @@ class MainActivity : AppCompatActivity() {
 
             try {
                 val viewDetections = if (shouldDetect) {
-                    val bmp = if (USE_STATIC_FRAME) {
+                    val sourceBmp = if (USE_STATIC_FRAME) {
                         val sb = staticBitmap
                         if (sb == null) {
                             Log.e(TAG, "Static bitmap not available")
@@ -383,10 +396,17 @@ class MainActivity : AppCompatActivity() {
                         sb
                     } else {
                         val image = runCatching { frame.acquireCameraImage() }.getOrNull() ?: return
-                        val b = image.use { cameraImageToBitmap(it) }
-                        b
+                        image.use { cameraImageToBitmap(it) }
                     }
-                    Log.d(TAG, "▶️ orig bmp size: ${bmp.width}x${bmp.height}")
+                    Log.d(TAG, "▶️ orig bmp size: ${sourceBmp.width}x${sourceBmp.height}")
+
+                    val bmp = Bitmap.createScaledBitmap(
+                        sourceBmp,
+                        sourceBmp.width / 2,
+                        sourceBmp.height / 2,
+                        true
+                    )
+                    Log.d(TAG, "🔄 scaled bmp size: ${bmp.width}x${bmp.height}")
 
                     val vw = if (USE_STATIC_FRAME) overlay.width else sceneView.width
                     val vh = if (USE_STATIC_FRAME) overlay.height else sceneView.height
