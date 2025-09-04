@@ -76,7 +76,7 @@
   "rgem_pr": 2.5,
   "rgem_size": 5,
   "gem_p": 4.6,
-  "sgem_ps": 10.0,
+  "sgem_ps": 10,
   "sgem_infinity": false,
   "eps": 1e-08,
   "topk": 10,

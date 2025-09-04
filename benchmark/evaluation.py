@@ -8,6 +8,7 @@ import numpy as np
 from benchmark.revisitop.evaluate import compute_map
 from landmark_detection.search import Similarity_Search
 import pandas as pd
+import matplotlib as mpl
 
 def run_evaluation(
     df_result,
@@ -198,6 +199,7 @@ def run_evaluation2(
     places_db,
     dataset: str = "rparis6k",
     use_bbox: bool = False,
+    ks = [1, 5, 10]
 ):
     """Alternative evaluation using bounding boxes on queries.
 
@@ -263,8 +265,8 @@ def run_evaluation2(
     final_ranks = np.argsort(-sims_img, axis=0)
 
     gnd = cfg["gnd"]
-    ks = [1, 5, 10]
 
+    # Easy
     gnd_t = []
     for i in range(len(gnd)):
         g = {}
@@ -273,6 +275,7 @@ def run_evaluation2(
         gnd_t.append(g)
     mapE, apsE, mprE, prsE = compute_map(final_ranks, gnd_t, ks)
 
+    # Medium
     gnd_t = []
     for i in range(len(gnd)):
         g = {}
@@ -281,6 +284,7 @@ def run_evaluation2(
         gnd_t.append(g)
     mapM, apsM, mprM, prsM = compute_map(final_ranks, gnd_t, ks)
 
+    # Hard
     gnd_t = []
     for i in range(len(gnd)):
         g = {}
@@ -315,6 +319,185 @@ def run_evaluation2(
         "mpr_medium": mprM,
         "mpr_hard": mprH,
     }
+
+def evaluate_search(
+    df_result,
+    places_db,
+    place_of_img,
+    q_place_gt,
+    dataset: str = "rparis6k",
+    use_bbox: bool = False,
+    k_max = 30
+):
+    DATASETS_PATH = os.path.abspath("datasets")
+
+    print(f">> {dataset}: Evaluating test dataset...")
+    cfg = configdataset(dataset, DATASETS_PATH)
+
+    query_image_names = np.array(cfg["qimlist"]) + cfg["ext"]
+    q_idx_map = {name: idx for idx, name in enumerate(query_image_names)}
+    df_result["q_img_id"] = df_result["image_name"].map(q_idx_map).fillna(-1).astype(int)
+
+    db_image_names = np.array(cfg["imlist"]) + cfg["ext"]
+    db_idx_map = {name: idx for idx, name in enumerate(db_image_names)}
+    df_result["db_img_id"] = df_result["image_name"].map(db_idx_map).fillna(-1).astype(int)
+
+    print(f">> {dataset}: Loading features...")
+
+    mask_img_full = df_result["class_id"] == -1
+    mask_selection = np.ones(len(df_result), dtype=bool) if use_bbox else mask_img_full
+
+    mask_query = df_result["image_name"].isin(query_image_names)
+    query_index = (
+        df_result[mask_query & mask_selection]
+        .sort_values("q_img_id")
+        .index
+    )
+    Q = places_db[query_index, :-1]
+    q_ids = df_result.loc[query_index, "q_img_id"].values
+
+    mask_db = df_result["image_name"].isin(db_image_names)
+    db_index = (
+        df_result[mask_db & mask_selection]
+        .sort_values("db_img_id")
+        .index
+    )
+    X = places_db[db_index, :-1]
+    db_ids = df_result.loc[db_index, "db_img_id"].values
+
+    print(f">> {dataset}: Retrieval...")
+    sims_desc = np.dot(Q, X.T)
+
+    n_db = len(db_image_names)
+    n_q = len(query_image_names)
+    sims_img = np.full((n_db, n_q), -np.inf, dtype=np.float32)
+
+    for qid in range(n_q):
+        rows = np.where(q_ids == qid)[0]
+        if rows.size == 0:
+            continue
+        s_q = sims_desc[rows]
+        for dbid in range(n_db):
+            cols = np.where(db_ids == dbid)[0]
+            if cols.size == 0:
+                continue
+            sims_img[dbid, qid] = np.max(s_q[:, cols])
+
+    final_ranks = np.argsort(-sims_img, axis=0).T
+    place_mat = ranks_to_places(final_ranks, place_of_img)    
+    result = grid_by_place_with_gt(place_mat, q_place_gt, k_max)
+
+    return result, final_ranks, place_mat, sims_img
+
+def build_place_of_img_from_cfg(cfg):
+    """
+    db_img_id -> place_id compacto (0..P-1) o -1 si sin lugar.
+    """
+    db_image_names = np.array(cfg['imlist']) + cfg['ext']
+    n_db = len(db_image_names)
+    img2place = cfg['image_to_place']
+
+    place_to_id = {}
+    id_to_place = []
+    next_pid = 0
+
+    place_of_img = np.full(n_db, -1, dtype=np.int32)
+
+    for db_id, fname in enumerate(db_image_names):
+        pstr = img2place.get(fname, None)
+        if pstr is None:
+            continue
+        if pstr not in place_to_id:
+            place_to_id[pstr] = next_pid
+            id_to_place.append(pstr)
+            next_pid += 1
+        place_of_img[db_id] = place_to_id[pstr]
+
+    return place_of_img, place_to_id, id_to_place
+
+def build_q_place_gt(cfg, place_to_id, place_of_img):
+    """
+    q_place_gt (Q,) con el place_id correcto por query.
+    Reutiliza place_to_id; si falta el mapping para la query,
+    infiere el place desde sus positivos (easy ∪ hard).
+    """
+    qim_names = np.array(cfg['qimlist']) + cfg['ext']
+    img2place = cfg['image_to_place']
+    gnd = cfg['gnd']
+
+    q_place_gt = np.full(len(qim_names), -1, dtype=np.int32)
+
+    for qi, qname in enumerate(qim_names):
+        pstr = img2place.get(qname, None)
+        if (pstr is not None) and (pstr in place_to_id):
+            q_place_gt[qi] = place_to_id[pstr]
+            continue
+
+        # Fallback: inferir a partir de positivos (easy ∪ hard)
+        pos = np.concatenate([gnd[qi].get('easy', []), gnd[qi].get('hard', [])])
+        if pos.size == 0:
+            continue
+
+        pids = place_of_img[pos]
+        pids = pids[pids >= 0]
+        if pids.size == 0:
+            continue
+
+        vals, cnts = np.unique(pids, return_counts=True)
+        q_place_gt[qi] = vals[np.argmax(cnts)]
+
+    return q_place_gt
+
+def ranks_to_places(final_ranks: np.ndarray, place_of_img: np.ndarray) -> np.ndarray:
+    """
+    final_ranks: (Q, N) con db_img_id por celda.
+    place_of_img: (n_db,) con place_id por db_img_id (-1 si sin lugar).
+    """
+    return place_of_img[final_ranks]
+
+def grid_by_place_with_gt(place_mat, q_place_gt, k_max=100):
+    """
+    place_mat: (Q, N) con place_id por celda; -1 = sin lugar
+    q_place_gt: (Q,) place_id correcto de cada query; -1 = desconocido (se excluye de las métricas)
+    """
+    Q, N = place_mat.shape
+    k_max = min(k_max, N)
+
+    valid_q = (q_place_gt >= 0)
+    Qv = int(valid_q.sum())
+    if Qv == 0:
+        raise ValueError("No hay queries con ground truth de place válido.")
+
+    acc   = np.zeros((k_max, k_max), dtype=np.float32)
+    cov   = np.zeros((k_max, k_max), dtype=np.float32)
+    precd = np.zeros((k_max, k_max), dtype=np.float32)
+    valid = np.zeros((k_max, k_max), dtype=bool)
+
+    for k in range(1, k_max+1):
+        topk = place_mat[:, :k]
+        for v in range(1, k+1):
+            decided = 0
+            correct = 0
+            # recorremos solo queries con GT válido
+            for i in np.flatnonzero(valid_q):
+                vals = topk[i]
+                vals = vals[vals >= 0]
+                if vals.size == 0:
+                    continue
+                counts = np.bincount(vals)
+                maxc = counts.max(initial=0)
+                if maxc >= v:
+                    decided += 1
+                    # place predicho = argmax conteo (desempate por id más chico)
+                    pred = counts.argmax()
+                    if pred == q_place_gt[i]:
+                        correct += 1
+            cov[k-1, v-1] = decided / Qv
+            acc[k-1, v-1] = correct / Qv
+            precd[k-1, v-1] = (correct / decided) if decided > 0 else 0.0
+            valid[k-1, v-1] = True
+
+    return {"accuracy": acc, "coverage": cov, "precision_decided": precd, "valid": valid}
 
 def show_inference_example(
     df_result,
@@ -466,3 +649,299 @@ def save_evaluation_result(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+# ============================
+# Heatmap genérico
+# ============================
+def _plot_heatmap(Z: np.ndarray, valid: np.ndarray, title: str, vmin=0.0, vmax=1.0, cmap="viridis"):
+    """
+    Z: (k_max, k_max) indexado [k-1, v-1]
+    valid: máscara booleana (v<=k)
+    """
+    Zmask = np.ma.array(Z, mask=~valid)
+    cmap_obj = mpl.cm.get_cmap(cmap).copy()
+    cmap_obj.set_bad(color="#cccccc")  # inválidos en gris claro
+    im = plt.imshow(Zmask.T, origin="lower", aspect="auto",
+                    extent=[1, Z.shape[0], 1, Z.shape[1]], vmin=vmin, vmax=vmax, cmap=cmap_obj)
+    plt.xlabel("top_k")
+    plt.ylabel("min_votes")
+    plt.title(title)
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+
+def plot_heatmaps(acc: np.ndarray, cov: np.ndarray, precd: np.ndarray, valid: np.ndarray,
+                  lambda_k: float = 0.0, lambda_v: float = 0.0):
+    """
+    Dibuja 3 heatmaps (accuracy, coverage, precision_decided).
+    """
+    plt.figure(figsize=(10, 4))
+
+    # Coverage
+    plt.subplot(1, 3, 2)
+    _plot_heatmap(cov, valid, "Coverage")
+
+    # Precision (solo entre decididas)
+    plt.subplot(1, 3, 3)
+    _plot_heatmap(precd, valid, "Precision (decididas)")
+
+    plt.tight_layout()
+    plt.show()
+
+# ============================
+# Cortes (curvas) para análisis fino
+# ============================
+def plot_slices_vs_min_votes(acc: np.ndarray, cov: np.ndarray, precd: np.ndarray, valid: np.ndarray,
+                             k_list=(5, 10, 20, 50)):
+    """
+    Curvas (accuracy, coverage, precision_decided) vs min_votes para k fijos.
+    """
+    k_max = acc.shape[0]
+    plt.figure(figsize=(11, 4))
+
+    # Coverage
+    plt.subplot(1, 3, 2)
+    for k in k_list:
+        if 1 <= k <= k_max:
+            vmask = valid[k-1, :k]
+            plt.plot(np.arange(1, k+1)[vmask], cov[k-1, :k][vmask], label=f"k={k}", marker="o", lw=1.5, ms=4)
+    plt.xlabel("min_votes", fontsize=10)
+    plt.ylabel("Cobertura", fontsize=10)
+    # plt.title("Coverage vs min_votes")
+    plt.legend(fontsize=8, title_fontsize=9)
+    plt.grid(True)
+    plt.tick_params(axis="both", which="major", labelsize=8)
+
+    # Precision entre decididas
+    plt.subplot(1, 3, 3)
+    for k in k_list:
+        if 1 <= k <= k_max:
+            vmask = valid[k-1, :k]
+            plt.plot(np.arange(1, k+1)[vmask], precd[k-1, :k][vmask], label=f"k={k}", marker="o", lw=1.5, ms=4)
+    plt.xlabel("min_votes", fontsize=10)
+    plt.ylabel("Precisión (decididas)", fontsize=10)
+    # plt.title("Precision (decididas) vs min_votes")
+    # plt.legend()
+    plt.grid(True)
+    plt.tick_params(axis="both", which="major", labelsize=8)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.99])
+    plt.savefig('slices_vs_min_votes_graph_pa.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_slices_vs_topk(acc: np.ndarray, cov: np.ndarray, precd: np.ndarray, valid: np.ndarray,
+                        v_list=(1, 2, 3, 5)):
+    """
+    Curvas (accuracy, coverage, precision_decided) vs top_k para min_votes fijos.
+    """
+    k_max = acc.shape[0]
+    plt.figure(figsize=(11, 4))
+
+    # Coverage
+    plt.subplot(1, 3, 2)
+    for v in v_list:
+        ks = np.arange(max(v,1), k_max+1)
+        mask = np.array([valid[k-1, v-1] for k in ks])
+        plt.plot(ks[mask], np.array([cov[k-1, v-1] for k in ks])[mask], label=f"min_votes={v}", marker="o", lw=1.5, ms=4)
+    plt.xlabel("top_k", fontsize=10)
+    plt.ylabel("Cobertura", fontsize=10)
+    # plt.title("Coverage vs top_k")
+    plt.legend(fontsize=8, title_fontsize=9)
+    plt.grid(True)
+    plt.tick_params(axis="both", which="major", labelsize=8)
+
+    # Precision entre decididas
+    plt.subplot(1, 3, 3)
+    for v in v_list:
+        ks = np.arange(max(v,1), k_max+1)
+        mask = np.array([valid[k-1, v-1] for k in ks])
+        plt.plot(ks[mask], np.array([precd[k-1, v-1] for k in ks])[mask], label=f"min_votes={v}", marker="o", lw=1.5, ms=4)
+    plt.xlabel("top_k", fontsize=10)
+    plt.ylabel("Precisión (decididas)", fontsize=10)
+    # plt.title("Precision (decididas) vs top_k")
+    # plt.legend()
+
+    plt.tick_params(axis="both", which="major", labelsize=8)
+
+    plt.grid(True)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.99])
+    plt.savefig('slices_vs_topk_graph_pa.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_coverage_vs_precision(
+    acc: np.ndarray,          # (K,K)
+    cov: np.ndarray,          # (K,K)
+    precd: np.ndarray,        # (K,K)
+    valid: np.ndarray,        # (K,K) bool
+    k_list=None,              # iterable de k a mostrar (por defecto: todos)
+    label_every=0,            # 0 = sin rótulos de v; si >0, rotula cada 'label_every'
+    zoom=None,                # None o (xmin,xmax,ymin,ymax) para recortar ejes
+    figsize=(7,5),
+    title="",
+):
+    """
+    Un gráfico: eje X = Cobertura, eje Y = Precisión (entre decididas).
+    - Una curva por k.
+    - Los puntos de la curva son min_votes = 1..k.
+    - Opcional: rótulos de v espaciados y ventana de zoom fija.
+    """
+    K = acc.shape[0]
+    if k_list is None:
+        k_list = range(1, K+1)
+
+    fig, ax = plt.subplots(figsize=(5, 4))  # Tamaño proporcional a cada subplot anterior
+
+    cmap = plt.cm.get_cmap("tab10", len(list(k_list)))
+
+    for idx, k in enumerate(k_list):
+        if not (1 <= k <= K):
+            continue
+        vs = np.arange(1, k+1)
+        m  = valid[k-1, vs-1]
+        if not np.any(m):
+            continue
+
+        xs = cov[k-1, vs-1][m]       # cobertura
+        ys = precd[k-1, vs-1][m]     # precisión condicional
+        ax.plot(xs, ys, marker="o", lw=1.5, ms=4, color=cmap(idx), label=f"k={k}")
+
+        # Rótulos de v opcionales, espaciados
+        if label_every and xs.size:
+            for j, v in enumerate(vs[m]):
+                if j % label_every == 0:
+                    ax.text(xs[j], ys[j], f"v={v}", fontsize=7,
+                            ha="left", va="bottom", color=cmap(idx))
+
+    # Etiquetas de ejes y título con tamaño de fuente explícito
+    ax.set_xlabel("Cobertura", fontsize=10)
+    ax.set_ylabel("Precisión (decididas)", fontsize=10)
+    ax.set_title(title, fontsize=11)
+
+    # Ajuste de ticks
+    ax.tick_params(axis="both", which="major", labelsize=8)
+
+    # Leyenda con tamaño de fuente explícito
+    ax.legend(title="top_k", frameon=True, fontsize=8, title_fontsize=9)
+
+    ax.grid(True)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.99])
+    plt.savefig('coverage_vs_precision_graph_pa.png', dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+def grid_min_sim_with_gt(
+    place_mat: np.ndarray,     # (Q, N) place_id por celda; -1 = sin lugar
+    score_mat: np.ndarray,     # (Q, N) similitud alineada con place_mat
+    q_place_gt: np.ndarray,    # (Q,) place_id correcto por query; -1 = sin GT
+    topk: int,
+    min_votes: int,
+    sim_thresholds: np.ndarray # 1D, p.ej. np.linspace(0.0, 1.0, 51)
+):
+    """
+    Calcula accuracy, coverage y precision_decided al variar min_sim,
+    con (topk, min_votes) fijos.
+    """
+    Q, N = place_mat.shape
+    assert score_mat.shape == (Q, N), "score_mat debe estar alineada con place_mat"
+    topk = min(topk, N)
+    if not (1 <= min_votes <= topk):
+        raise ValueError("Debe cumplirse 1 <= min_votes <= topk.")
+
+    valid_q = (q_place_gt >= 0)
+    Qv = int(valid_q.sum())
+    if Qv == 0:
+        raise ValueError("No hay queries con ground truth de place válido.")
+
+    A = np.zeros(len(sim_thresholds), dtype=np.float32)  # accuracy
+    C = np.zeros(len(sim_thresholds), dtype=np.float32)  # coverage (decididas/GT)
+    P = np.zeros(len(sim_thresholds), dtype=np.float32)  # precisión entre decididas
+
+    pk = place_mat[:, :topk]
+    sk = score_mat[:, :topk]
+
+    for idx, thr in enumerate(sim_thresholds):
+        decided = 0
+        correct = 0
+        for i in np.flatnonzero(valid_q):
+            mask = sk[i] >= thr
+            if not np.any(mask):
+                continue
+            vals = pk[i, mask]
+            vals = vals[vals >= 0]
+            if vals.size == 0:
+                continue
+            cnts = np.bincount(vals)
+            if cnts.max(initial=0) >= min_votes:
+                decided += 1
+                pred = cnts.argmax()
+                if pred == q_place_gt[i]:
+                    correct += 1
+        C[idx] = decided / Qv
+        A[idx] = correct / Qv
+        P[idx] = (correct / decided) if decided > 0 else 0.0
+
+    return {
+        "min_sim": np.array(sim_thresholds, dtype=float),
+        "accuracy": A,
+        "coverage": C,
+        "precision_decided": P,
+        "topk": int(topk),
+        "min_votes": int(min_votes),
+    }
+
+def build_score_mat(final_ranks: np.ndarray, sims_img: np.ndarray) -> np.ndarray:
+    """
+    final_ranks: (Q, N) con db_img_id por celda
+    sims_img   : (n_db, Q) similitud por (db, query)
+    Retorna score_mat (Q, N) tal que score_mat[q, j] = sims_img[final_ranks[q, j], q]
+    """
+    Q, N = final_ranks.shape
+    score_mat = np.empty((Q, N), dtype=np.float32)
+    for q in range(Q):
+        score_mat[q] = sims_img[final_ranks[q], q]
+    return score_mat
+
+def plot_cov_prec_vs_min_sim(res, zoom_range=(0.8, 0.88), zoom_range_y=(0.0, 1.0)):
+    """
+    Muestra Cobertura y Precisión vs min_sim en una grilla 2x2.
+    - Fila superior: ejes completos
+    - Fila inferior: zoom en el rango de interés (zoom_range)
+    """
+    x = res["min_sim"]
+    y_cov = res["coverage"]
+    y_prec = res["precision_decided"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+    # Cobertura - completo
+    axes[0, 0].plot(x, y_cov, marker="o", lw=1.6, ms=4, color="tab:blue")
+    axes[0, 0].set_xlabel("min_sim", fontsize=10)
+    axes[0, 0].set_ylabel("Cobertura", fontsize=10)
+    axes[0, 0].grid(True)
+    axes[0, 0].tick_params(axis="both", which="major", labelsize=8)
+
+    # Cobertura - zoom
+    axes[1, 0].plot(x, y_cov, marker="o", lw=1.6, ms=4, color="tab:blue")
+    axes[1, 0].set_xlabel("min_sim", fontsize=10)
+    axes[1, 0].set_ylabel("Cobertura", fontsize=10)
+    axes[1, 0].grid(True)
+    axes[1, 0].set_xlim(*zoom_range)
+    axes[1, 0].set_ylim(*zoom_range_y)
+    axes[1, 0].tick_params(axis="both", which="major", labelsize=8)
+
+    # Precisión - completo
+    axes[0, 1].plot(x, y_prec, marker="o", lw=1.6, ms=4, color="tab:green")
+    axes[0, 1].set_xlabel("min_sim")
+    axes[0, 1].set_ylabel("Precisión (decididas)")
+    axes[0, 1].grid(True)
+    axes[0, 1].tick_params(axis="both", which="major", labelsize=8)
+
+    # Precisión - zoom
+    axes[1, 1].plot(x, y_prec, marker="o", lw=1.6, ms=4, color="tab:green")
+    axes[1, 1].set_xlabel("min_sim")
+    axes[1, 1].set_ylabel("Precisión (decididas)")
+    axes[1, 1].grid(True)
+    axes[1, 1].set_xlim(*zoom_range)
+    axes[1, 1].set_ylim(*zoom_range_y)
+    axes[1, 1].tick_params(axis="both", which="major", labelsize=8)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.99])
+    plt.savefig('cov_prec_vs_min_sim_graph_pa.png', dpi=300, bbox_inches='tight')
+    plt.show()
