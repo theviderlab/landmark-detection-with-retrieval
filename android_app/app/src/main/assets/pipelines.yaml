@@ -1,0 +1,22 @@
+# Configuration for available inference pipelines
+pipelines:
+  - name: default
+    model: pipeline/pipeline.onnx
+    embeddings: pipeline/places_db.bin
+    label_map: pipeline/label_map.json
+    description: Modelo final dataset Cáceres.
+  - name: no-filter
+    model: pipeline/pipeline-2.onnx
+    embeddings: pipeline/places_db.bin
+    label_map: pipeline/label_map.json
+    description: Modelo sin filtros dataset Cáceres.
+  - name: sim-0.85
+    model: pipeline/pipeline-085.onnx
+    embeddings: pipeline/places_db.bin
+    label_map: pipeline/label_map.json
+    description: Modelo con min_sim 0.85 dataset Cáceres.
+  - name: sim-0.87 votes-2de6
+    model: pipeline/pipeline-087_2de6.onnx
+    embeddings: pipeline/places_db.bin
+    label_map: pipeline/label_map.json
+    description: Modelo con min_sim 0.87 y min_votes 2 de 6 dataset Cáceres.
