@@ -60,7 +60,7 @@ The whole pipeline, from the raw BGR image to the final boxes and landmark ids, 
 ├── configs/                Pipeline config of the app, OIV7 and Cáceres class names
 ├── scripts/export_onnx.py  Exports the end-to-end ONNX model from a config file
 ├── android_app/            Android AR demo (Kotlin, ARCore, ONNX Runtime)
-└── test_images/            A few sample photos of Cáceres
+└── test_images/            A few sample photos of Cáceres (taken by the author)
 ```
 
 ### Notebooks
@@ -94,7 +94,7 @@ The weights are not stored in this repository. Put them in `landmark_detection/m
 | Model | File | Source |
 |---|---|---|
 | YOLOv8n Open Images V7 | `yolov8n-oiv7.pt` | [Ultralytics](https://docs.ultralytics.com/datasets/detect/open-images-v7/). Downloaded automatically by `ultralytics` on first use |
-| CVNet-Global ResNet-50 | `CVPR2022_CVNet_R50.pyth` | [sungonce/CVNet](https://github.com/sungonce/CVNet), pretrained models section |
+| CVNet-Global ResNet-50 | `CVPR2022_CVNet_R50.pyth` | [sungonce/CVNet](https://github.com/sungonce/CVNet): Google Drive link in the *Pretrained models* section of its README |
 
 ### 3. Export the ONNX pipeline
 
