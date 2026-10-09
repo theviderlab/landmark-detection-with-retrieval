@@ -167,7 +167,7 @@ def load_names_from_yaml(file_path, as_dict: bool = False):
     list[str] | dict[int, str]
         Lista o diccionario con los nombres dependiendo de ``as_dict``.
     """
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
     
     names_dict = data.get('names', {})
@@ -259,6 +259,24 @@ def export_places_db(places_db: np.ndarray, label_map: dict[int, str], output_di
 
     with open(os.path.join(output_dir, "label_map.json"), "w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2, ensure_ascii=False)
+
+def load_places_db(bin_path: str) -> np.ndarray:
+    """Carga una base de datos guardada con :func:`export_places_db`.
+
+    Parameters
+    ----------
+    bin_path : str
+        Ruta al archivo ``places_db.bin``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Matriz ``(N, C + 1)`` con descriptores y el ``place_id`` en la última columna.
+    """
+    with open(bin_path, "rb") as f:
+        n, c = np.frombuffer(f.read(8), dtype=np.int32)
+        places = np.frombuffer(f.read(), dtype=np.float32)
+    return places.reshape(n, c).copy()
 
 def load_image_database(
     df_pickle_path: str, descriptor_pickle_path: str

@@ -1,13 +1,20 @@
-# Ignorar toda las carpetas
-datasets/
+# Python
 __pycache__/
+*.pyc
 .ipynb_checkpoints/
-landmark_detection/__pycache__/
 
-# Ignorar archivos con extensión
+# Datasets (download with benchmark/revisitop/download.py)
+datasets/
+
+# Model weights and exported models (see README)
+landmark_detection/models/
 *.pth
 *.pyth
-*.onnx
 *.pt
-/configs
+*.onnx
+
+# Pipeline configs written by Pipeline_Landmark_Detection.to_json during experiments
+configs/pipeline-*
+
+# Android
 android_app/local.properties

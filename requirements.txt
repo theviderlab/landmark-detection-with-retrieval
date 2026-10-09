@@ -1,7 +1,11 @@
 numpy
 pandas
 pyyaml
-pytest
 tqdm
+matplotlib
+opencv-python
 torch
+torchvision
+onnx
 onnxruntime
+ultralytics

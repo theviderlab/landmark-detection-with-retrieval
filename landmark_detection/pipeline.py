@@ -70,6 +70,7 @@ class Pipeline_Landmark_Detection():
 
         # Cargar los datos de prueba
         module_dir = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(os.path.join(module_dir, "models"), exist_ok=True)
         test_image_path = os.path.join(module_dir, "test_data", "test.jpg")
         test_places_db_path = os.path.join(module_dir, "test_data", "test_places_db.pkl")
 
